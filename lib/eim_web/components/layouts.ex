@@ -31,41 +31,67 @@ defmodule EimWeb.Layouts do
     default: nil,
     doc: "the current [scope](https://phoenix.hexdocs.pm/scopes.html)"
 
+  attr :current_user, :map, default: nil
+
   slot :inner_block, required: true
 
   def app(assigns) do
     ~H"""
-    <header class="navbar px-4 sm:px-6 lg:px-8">
-      <div class="flex-1">
-        <a href="/" class="flex-1 flex w-fit items-center gap-2">
-          <img src={~p"/images/logo.svg"} width="36" />
-          <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
+    <header class="border-b border-slate-200/80 bg-white/90">
+      <nav
+        aria-label="Main navigation"
+        class="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8"
+      >
+        <a href="/" class="flex items-center gap-2.5" aria-label="Eim home">
+          <span class="flex size-9 items-center justify-center rounded-xl bg-slate-950 text-lime-300">
+            <.icon name="hero-book-open" class="size-5" />
+          </span>
+          <span class="text-lg font-semibold tracking-tight text-slate-950">eim</span>
         </a>
-      </div>
-      <div class="flex-none">
-        <ul class="flex px-1 space-x-4 items-center">
-          <li>
-            <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
-          </li>
-          <li>
-            <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">GitHub</a>
-          </li>
-          <li>
-            <.theme_toggle />
-          </li>
-          <li>
-            <a href="https://phoenix.hexdocs.pm/overview.html" class="btn btn-primary">
-              Get Started <span aria-hidden="true">&rarr;</span>
+        <div class="flex items-center gap-3 sm:gap-6">
+          <%= if @current_user do %>
+            <span
+              id="current-user-email"
+              class="max-w-[9rem] truncate text-sm font-medium text-slate-600 sm:max-w-none"
+              title={@current_user.email}
+            >
+              {@current_user.email}
+            </span>
+            <.link
+              id="sign-out-link"
+              href="/sign-out"
+              method="delete"
+              class="text-sm font-semibold text-slate-700 transition hover:text-slate-950"
+            >
+              Sign out
+            </.link>
+          <% else %>
+            <a
+              href="/#how-it-works"
+              class="hidden text-sm font-medium text-slate-600 transition hover:text-slate-950 sm:block"
+            >
+              How it works
             </a>
-          </li>
-        </ul>
-      </div>
+            <a
+              href="/sign-in"
+              class="text-sm font-semibold text-slate-700 transition hover:text-slate-950"
+            >
+              Sign in
+            </a>
+            <a
+              href="/register"
+              class="rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-lime-800"
+            >
+              Get started
+            </a>
+          <% end %>
+          <.theme_toggle />
+        </div>
+      </nav>
     </header>
 
-    <main class="px-4 py-20 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-2xl space-y-4">
-        {render_slot(@inner_block)}
-      </div>
+    <main class="mx-auto max-w-7xl px-5 sm:px-8">
+      {render_slot(@inner_block)}
     </main>
 
     <.flash_group flash={@flash} />

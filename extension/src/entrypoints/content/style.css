@@ -1,0 +1,20 @@
+.eim-card {
+    position: fixed;
+    z-index: 2147483647;
+    max-width: 320px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    font: 14px/1.5 system-ui, sans-serif;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.eim-word {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.eim-result {
+    opacity: 0.9;
+}
