@@ -456,6 +456,7 @@ end
 - **AshAdmin**：给 `Lexeme` 加 `AshAdmin.Resource` 扩展，在 `/admin` 抽查数据。
 - **认证**：本阶段可仅在开发环境开放；**接 LLM 之前必须先有认证与限流**。
 - **插件**：把 background 里的 `mockTranslate` 换成对该接口的 `fetch`，浮窗展示 `lemma / phonetic / senses / tags`。
+- 插件端到端划词查词 MVP 的目标、消息链路、错误状态与验收标准见 [插件划词查词 MVP 技术方案](./插件划词查词MVP技术方案.md)。
 
 **验收**：`curl` 查询 `gave` 返回 `lemma: give`；浮窗能显示真实释义。
 

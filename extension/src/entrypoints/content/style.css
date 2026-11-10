@@ -1,20 +1,88 @@
 .eim-card {
     position: fixed;
     z-index: 2147483647;
-    max-width: 320px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: #1e1e2e;
-    color: #cdd6f4;
-    font: 14px/1.5 system-ui, sans-serif;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    box-sizing: border-box;
+    width: min(344px, calc(100vw - 16px));
+    max-height: min(360px, calc(100vh - 16px));
+    overflow: auto;
+    padding: 12px 14px;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 12px;
+    background: #111827;
+    color: #f8fafc;
+    font: 14px/1.55 system-ui, sans-serif;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.28);
+}
+
+.eim-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
 }
 
 .eim-word {
-    font-weight: 600;
-    margin-bottom: 4px;
+    overflow-wrap: anywhere;
+    color: #d9f99d;
+    font-size: 16px;
+    font-weight: 700;
 }
 
-.eim-result {
-    opacity: 0.9;
+.eim-close {
+    flex: none;
+    margin: -4px -6px 0 0;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #cbd5e1;
+    cursor: pointer;
+    font-size: 22px;
+    line-height: 1.2;
+}
+
+.eim-close:hover,
+.eim-close:focus-visible {
+    background: rgba(148, 163, 184, 0.16);
+    color: white;
+}
+
+.eim-lemma {
+    margin-top: 3px;
+    color: #e2e8f0;
+    font-weight: 600;
+}
+
+.eim-phonetic {
+    margin-top: 3px;
+    color: #94a3b8;
+}
+
+.eim-state {
+    margin: 8px 0 0;
+    color: #cbd5e1;
+}
+
+.eim-error {
+    color: #fca5a5;
+}
+
+.eim-senses {
+    display: grid;
+    gap: 5px;
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.eim-senses li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 6px;
+}
+
+.eim-pos,
+.eim-domain {
+    color: #bef264;
+    font-size: 12px;
 }
