@@ -10,6 +10,7 @@ defmodule EimWeb.Layouts do
   # skeleton of your application, namely HTML headers
   # and other static content.
   embed_templates "layouts/*"
+  @dev_routes Application.compile_env(:eim, :dev_routes, false)
 
   @doc """
   Renders your app layout.
@@ -36,6 +37,8 @@ defmodule EimWeb.Layouts do
   slot :inner_block, required: true
 
   def app(assigns) do
+    assigns = assign(assigns, :dev_routes_enabled, @dev_routes)
+
     ~H"""
     <header class="border-b border-slate-200/80 bg-white/90">
       <nav
@@ -49,6 +52,54 @@ defmodule EimWeb.Layouts do
           <span class="text-lg font-semibold tracking-tight text-slate-950">eim</span>
         </a>
         <div class="flex items-center gap-3 sm:gap-6">
+          <%= if @dev_routes_enabled do %>
+            <div id="dev-tools" class="dev-tools group relative">
+              <button
+                id="dev-tools-toggle"
+                type="button"
+                aria-expanded="false"
+                aria-controls="dev-tools-menu"
+                class="flex cursor-pointer items-center gap-1 text-sm font-semibold text-slate-600 transition hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lime-700"
+              >
+                Dev
+                <.icon
+                  name="hero-chevron-down"
+                  class="size-4 transition group-hover:rotate-180 group-focus-within:rotate-180"
+                />
+              </button>
+              <div
+                id="dev-tools-menu"
+                class="dev-tools-menu absolute right-0 top-full z-50 hidden w-48 pt-2"
+              >
+                <div class="rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg shadow-slate-950/10">
+                  <a
+                    href="/admin"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+                  >
+                    Ash Admin
+                  </a>
+                  <a
+                    href="/oban"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+                  >
+                    Oban Dashboard
+                  </a>
+                  <a
+                    href="/api/swaggerui"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+                  >
+                    API / Swagger
+                  </a>
+                </div>
+              </div>
+            </div>
+          <% end %>
           <%= if @current_user do %>
             <span
               id="current-user-email"

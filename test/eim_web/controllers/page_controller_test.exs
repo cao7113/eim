@@ -9,6 +9,7 @@ defmodule EimWeb.PageControllerTest do
     assert response =~ "YOUR WORDS, WORKING FOR YOU"
     assert response =~ "how-it-works"
     refute response =~ "Phoenix Framework"
+    refute response =~ ~s(id="dev-tools")
   end
 
   test "GET / displays the signed-in user's email", %{conn: conn} do

@@ -25,6 +25,45 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/eim"
 import topbar from "../vendor/topbar"
 
+const devTools = document.getElementById("dev-tools")
+if (devTools) {
+  const toggle = document.getElementById("dev-tools-toggle")
+
+  const closeDevTools = () => {
+    devTools.classList.remove("is-open")
+    toggle.setAttribute("aria-expanded", "false")
+  }
+
+  toggle.addEventListener("click", () => {
+    const isOpen = devTools.classList.toggle("is-open")
+    toggle.setAttribute("aria-expanded", String(isOpen))
+  })
+
+  devTools.addEventListener("pointerleave", () => {
+    const activeElement = document.activeElement
+    const keyboardFocused = activeElement instanceof HTMLElement && activeElement.matches(":focus-visible")
+
+    if (!keyboardFocused) {
+      closeDevTools()
+      if (activeElement instanceof HTMLElement && devTools.contains(activeElement)) activeElement.blur()
+    }
+  })
+
+  document.addEventListener("pointerdown", event => {
+    if (!devTools.contains(event.target)) {
+      closeDevTools()
+      if (devTools.contains(document.activeElement)) document.activeElement.blur()
+    }
+  })
+
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && devTools.classList.contains("is-open")) {
+      closeDevTools()
+      toggle.focus()
+    }
+  })
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
@@ -80,4 +119,3 @@ if (process.env.NODE_ENV === "development") {
     window.liveReloader = reloader
   })
 }
-

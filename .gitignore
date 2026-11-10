@@ -31,7 +31,9 @@ eim-*.tar
 # Ignore digested assets cache.
 /priv/static/cache_manifest.json
 
+# Local dictionary source data is not committed.
+/priv/data/
+
 # In case you use Node.js/npm, you want to ignore these.
 npm-debug.log
 /assets/node_modules/
-

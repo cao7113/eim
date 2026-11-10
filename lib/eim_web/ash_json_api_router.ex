@@ -1,5 +1,5 @@
 defmodule EimWeb.AshJsonApiRouter do
   use AshJsonApi.Router,
-    domains: [],
+    domains: [Eim.Dict],
     open_api: "/open_api"
 end

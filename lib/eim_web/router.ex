@@ -45,16 +45,6 @@ defmodule EimWeb.Router do
     end
   end
 
-  scope "/api/json" do
-    pipe_through [:api]
-
-    forward "/swaggerui", OpenApiSpex.Plug.SwaggerUI,
-      path: "/api/json/open_api",
-      default_model_expand_depth: 4
-
-    forward "/", EimWeb.AshJsonApiRouter
-  end
-
   scope "/", EimWeb do
     pipe_through :browser
 
@@ -87,10 +77,15 @@ defmodule EimWeb.Router do
     )
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", EimWeb do
-  #   pipe_through :api
-  # end
+  scope "/api" do
+    pipe_through [:api]
+
+    forward "/swaggerui", OpenApiSpex.Plug.SwaggerUI,
+      path: "/api/open_api",
+      default_model_expand_depth: 4
+
+    forward "/", EimWeb.AshJsonApiRouter
+  end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:eim, :dev_routes) do
