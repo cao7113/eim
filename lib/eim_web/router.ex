@@ -14,7 +14,7 @@ defmodule EimWeb.Router do
     plug :protect_from_forgery
     plug :put_secure_browser_headers
     plug :load_from_session
-    plug :store_vocab_return_to
+    plug :store_return_to
   end
 
   pipeline :api do
@@ -42,8 +42,14 @@ defmodule EimWeb.Router do
 
   defp require_vocab_actor(conn, _opts), do: conn
 
-  defp store_vocab_return_to(%{request_path: "/learn/vocab"} = conn, _opts) do
-    if conn.assigns[:current_user] do
+  defp store_return_to(%{request_path: path} = conn, _opts) do
+    dictionary_detail? =
+      case String.split(path, "/", trim: true) do
+        ["dicts", "ecdict", id] -> match?({:ok, _}, Ecto.UUID.cast(id))
+        _ -> false
+      end
+
+    if conn.assigns[:current_user] || (path != "/learn/vocab" && !dictionary_detail?) do
       conn
     else
       return_to =
@@ -52,8 +58,6 @@ defmodule EimWeb.Router do
       Plug.Conn.put_session(conn, :return_to, return_to)
     end
   end
-
-  defp store_vocab_return_to(conn, _opts), do: conn
 
   scope "/", EimWeb do
     pipe_through :browser
@@ -72,6 +76,18 @@ defmodule EimWeb.Router do
       #
       # If an authenticated user must *not* be present:
       # on_mount {EimWeb.LiveUserAuth, :live_no_user}
+    end
+  end
+
+  scope "/", EimWeb do
+    pipe_through :browser
+
+    get "/dicts/ecdict/:id/sign-in", EcdictSessionController, :sign_in
+
+    ash_authentication_live_session :dictionary_routes,
+      on_mount: [{EimWeb.LiveUserAuth, :live_user_optional}] do
+      live "/dicts/ecdict", EcdictLive, :index
+      live "/dicts/ecdict/:id", EcdictLive, :show
     end
   end
 

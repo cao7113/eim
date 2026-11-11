@@ -201,7 +201,11 @@
 
       if (currentRequestId !== requestId || currentActionId !== vocabActionId) return;
       if (result.ok) {
-        vocabStatus = { status: 'saved' };
+        vocabStatus = {
+          status: 'saved',
+          insertedAt: result.insertedAt,
+          learnUrl: result.learnUrl,
+        };
       } else if (result.error === 'signed_out') {
         vocabStatus = { status: 'signed_out' };
         vocabError = '登录已过期，请重新连接账号。';
@@ -240,6 +244,16 @@
       case 'failed':
         return '查询失败，请稍后重试。';
     }
+  }
+
+  function collectedDate(value: string) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return new Intl.DateTimeFormat('zh-CN', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }).format(date);
   }
 </script>
 
@@ -292,7 +306,12 @@
           {#if vocabStatus.status === 'checking'}
             <p class="eim-state">检查收藏状态…</p>
           {:else if vocabStatus.status === 'saved'}
-            <span class="eim-saved" role="status">已收藏</span>
+            <time class="eim-saved-date" role="status" datetime={vocabStatus.insertedAt}>
+              已收录于 {collectedDate(vocabStatus.insertedAt)}
+            </time>
+            <a class="eim-study-link" href={vocabStatus.learnUrl} target="_blank" rel="noopener noreferrer">
+              在学习中心查看 <span aria-hidden="true">↗</span>
+            </a>
           {:else if vocabStatus.status === 'signed_out'}
             <button class="eim-action" type="button" disabled={vocabBusy} onclick={connectToSave}>
               {vocabBusy ? '连接中…' : '登录后收藏'}

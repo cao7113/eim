@@ -21,6 +21,7 @@ defmodule EimWeb.VocabLive do
        page: 1,
        page_count: 1,
        total_count: 0,
+       deep_link_entry_id: nil,
        load_error: nil,
        selected_id: nil,
        selected_entry: nil,
@@ -41,12 +42,15 @@ defmodule EimWeb.VocabLive do
     sort = if Map.get(params, "sort") == "asc", do: "asc", else: "desc"
     per_page = parse_per_page(Map.get(params, "per_page"))
     page = parse_page(Map.get(params, "page"))
+    deep_link_entry_id = params |> Map.get("entry_id") |> valid_entry_id()
+    selected_entry = load_deep_link_entry(deep_link_entry_id, socket.assigns.current_user)
 
     socket =
       assign(socket,
         search: search,
         sort: sort,
         per_page: per_page,
+        deep_link_entry_id: deep_link_entry_id,
         filter_form:
           to_form(
             %{"q" => search, "sort" => sort, "per_page" => to_string(per_page)},
@@ -65,15 +69,29 @@ defmodule EimWeb.VocabLive do
 
     case load_entries(socket.assigns.current_user, search, sort, per_page, page) do
       {:ok, entries, total_count, page_count, actual_page} ->
+        entries = pin_selected_entry(entries, selected_entry, per_page)
+
         socket =
           socket
           |> assign(
             page: actual_page,
             page_count: page_count,
             total_count: total_count,
-            load_error: nil
+            load_error: nil,
+            selected_id: selected_entry && selected_entry.id,
+            selected_entry: selected_entry,
+            editing_id: selected_entry && selected_entry.id,
+            note_form: selected_entry && note_form(selected_entry.note),
+            note_count: if(selected_entry, do: String.length(selected_entry.note || ""), else: 0)
           )
           |> stream(:entries, entries, reset: true)
+
+        socket =
+          if deep_link_entry_id && is_nil(selected_entry) do
+            put_flash(socket, :error, "That vocabulary entry is unavailable.")
+          else
+            socket
+          end
 
         if actual_page != page do
           {:noreply, push_patch(socket, to: vocab_path(search, sort, per_page, actual_page))}
@@ -160,7 +178,20 @@ defmodule EimWeb.VocabLive do
       )
       |> stream_entry(id)
 
-    {:noreply, socket}
+    if socket.assigns.deep_link_entry_id do
+      {:noreply,
+       push_patch(socket,
+         to:
+           vocab_path(
+             socket.assigns.search,
+             socket.assigns.sort,
+             socket.assigns.per_page,
+             socket.assigns.page
+           )
+       )}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("show-shortcuts", _params, socket) do
@@ -309,6 +340,36 @@ defmodule EimWeb.VocabLive do
     end
   end
 
+  defp valid_entry_id(id) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> id
+      :error -> nil
+    end
+  end
+
+  defp valid_entry_id(_id), do: nil
+
+  defp load_deep_link_entry(nil, _user), do: nil
+
+  defp load_deep_link_entry(id, user) do
+    case get_owned_entry(id, user) do
+      {:ok, entry} -> entry
+      :error -> nil
+      {:error, _error} -> nil
+    end
+  end
+
+  defp pin_selected_entry(entries, nil, _per_page), do: entries
+
+  defp pin_selected_entry(entries, selected_entry, per_page) do
+    if Enum.any?(entries, &(&1.id == selected_entry.id)) do
+      entries
+    else
+      [selected_entry | Enum.reject(entries, &(&1.id == selected_entry.id))]
+      |> Enum.take(per_page)
+    end
+  end
+
   defp stream_entry(socket, id) when is_binary(id) do
     case get_owned_entry(id, socket.assigns.current_user) do
       {:ok, entry} ->
@@ -409,6 +470,8 @@ defmodule EimWeb.VocabLive do
 
     case load_entries(socket.assigns.current_user, search, sort, per_page, page) do
       {:ok, entries, total_count, page_count, actual_page} ->
+        entries = pin_selected_entry(entries, socket.assigns.selected_entry, per_page)
+
         socket =
           socket
           |> assign(
@@ -474,6 +537,27 @@ defmodule EimWeb.VocabLive do
   end
 
   defp snapshot_senses(_entry), do: []
+
+  defp list_meaning(entry) do
+    entry
+    |> snapshot_senses()
+    |> Enum.find_value(fn sense ->
+      case sense_text(sense) do
+        text when is_binary(text) ->
+          case String.trim(text) do
+            "" -> nil
+            text -> Enum.join(Enum.reject([sense_label(sense), text], &(&1 == "")), " ")
+          end
+
+        _ ->
+          nil
+      end
+    end)
+    |> case do
+      nil -> "No saved definition"
+      meaning -> meaning
+    end
+  end
 
   defp sense_text(sense) when is_map(sense) do
     Map.get(sense, "zh") || Map.get(sense, :zh)

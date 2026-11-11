@@ -28,10 +28,13 @@ defmodule EimWeb.VocabJsonApiTest do
                "attributes" => %{
                  "term_key" => "give",
                  "lookup_text" => "gave",
-                 "note" => "原始笔记"
+                 "note" => "原始笔记",
+                 "inserted_at" => inserted_at
                }
              }
            } = json_response(conn, 201)
+
+    assert {:ok, _, 0} = DateTime.from_iso8601(inserted_at)
 
     conn =
       build_conn()
@@ -39,14 +42,29 @@ defmodule EimWeb.VocabJsonApiTest do
       |> put_req_header("authorization", "Bearer #{token}")
       |> get("/api/vocab/entries?filter[term_key]=give")
 
-    assert %{"data" => [%{"id" => ^id, "attributes" => %{"note" => "原始笔记"}}]} =
+    assert %{
+             "data" => [
+               %{
+                 "id" => ^id,
+                 "attributes" => %{"note" => "原始笔记", "inserted_at" => ^inserted_at}
+               }
+             ]
+           } =
              json_response(conn, 200)
 
     conn =
       build_conn()
       |> post_vocab_entry(token, entry_attributes("give", "give", "不应覆盖"))
 
-    assert %{"data" => %{"id" => ^id, "attributes" => %{"note" => "原始笔记"}}} =
+    assert %{
+             "data" => %{
+               "id" => ^id,
+               "attributes" => %{
+                 "note" => "原始笔记",
+                 "inserted_at" => ^inserted_at
+               }
+             }
+           } =
              json_response(conn, 201)
   end
 

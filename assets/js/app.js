@@ -25,6 +25,37 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/eim"
 import topbar from "../vendor/topbar"
 
+if (process.env.NODE_ENV === "development" && window.location.pathname === "/sign-in") {
+  const fillDevCredentials = () => {
+    if (window.location.pathname !== "/sign-in") {
+      observer.disconnect()
+      document.removeEventListener("input", stopFilling, true)
+      return
+    }
+
+    const email = document.querySelector('form input[type="email"]')
+    const form = email?.closest("form")
+    const password = form?.querySelector('input[type="password"]')
+
+    if (email && !email.value) email.value = "dev@l.h"
+    if (password && !password.value) password.value = "password123456"
+  }
+  const stopFilling = () => {
+    observer.disconnect()
+    document.removeEventListener("input", stopFilling, true)
+  }
+  const observer = new MutationObserver(fillDevCredentials)
+
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["value"],
+    childList: true,
+    subtree: true,
+  })
+  document.addEventListener("input", stopFilling, true)
+  fillDevCredentials()
+}
+
 const devTools = document.getElementById("dev-tools")
 if (devTools) {
   const toggle = document.getElementById("dev-tools-toggle")

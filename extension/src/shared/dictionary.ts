@@ -44,11 +44,11 @@ export type ExtensionActionResult =
 
 export type VocabEntryStatus =
   | { status: 'checking' }
-  | { status: 'saved' }
+  | { status: 'saved'; insertedAt: string; learnUrl: string }
   | { status: 'not_saved' }
   | { status: 'signed_out' }
   | { status: 'offline' };
 
 export type VocabEntryActionResult =
-  | { ok: true }
+  | { ok: true; insertedAt: string; learnUrl: string }
   | { ok: false; error: 'signed_out' | 'unavailable' | 'failed' };

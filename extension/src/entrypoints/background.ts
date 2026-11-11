@@ -340,7 +340,14 @@ async function connectExtensionAccount(): Promise<ExtensionAuthResult> {
         return { status: 'offline' };
       }
 
-      return { status: body.data.length > 0 ? 'saved' : 'not_saved' };
+      const savedEntry = body.data[0];
+      return savedEntry
+        ? {
+            status: 'saved',
+            insertedAt: savedEntry.attributes.inserted_at,
+            learnUrl: vocabLearnUrl(savedEntry.id, apiBaseUrl),
+          }
+        : { status: 'not_saved' };
     } catch (error) {
       console.error('Unable to check saved vocabulary status:', error);
       return { status: 'offline' };
@@ -389,7 +396,17 @@ async function connectExtensionAccount(): Promise<ExtensionAuthResult> {
         return { ok: false, error: 'failed' };
       }
 
-      return { ok: true };
+      const body: unknown = await response.json();
+      if (!isVocabResourceResponse(body)) {
+        console.error('Vocab API save returned an invalid response');
+        return { ok: false, error: 'failed' };
+      }
+
+      return {
+        ok: true,
+        insertedAt: body.data.attributes.inserted_at,
+        learnUrl: vocabLearnUrl(body.data.id, apiBaseUrl),
+      };
     } catch (error) {
       console.error('Unable to save vocabulary entry:', error);
       return { ok: false, error: 'unavailable' };
@@ -416,10 +433,37 @@ async function connectExtensionAccount(): Promise<ExtensionAuthResult> {
     return value.normalize('NFKC').trim().toLowerCase();
   }
 
-  function isVocabIndexResponse(value: unknown): value is { data: unknown[] } {
+  function vocabLearnUrl(id: string, baseUrl: string): string {
+    const url = new URL('/learn/vocab', baseUrl);
+    url.searchParams.set('entry_id', id);
+    return url.toString();
+  }
+
+  type VocabApiEntry = {
+    id: string;
+    attributes: { inserted_at: string };
+  };
+
+  function isVocabResourceResponse(value: unknown): value is { data: VocabApiEntry } {
     if (typeof value !== 'object' || value === null) return false;
     const data = (value as Record<string, unknown>).data;
-    return Array.isArray(data);
+    return isVocabApiEntry(data);
+  }
+
+  function isVocabApiEntry(value: unknown): value is VocabApiEntry {
+    if (typeof value !== 'object' || value === null) return false;
+    const entry = value as Record<string, unknown>;
+    const attributes = entry.attributes;
+    return typeof entry.id === 'string' &&
+      typeof attributes === 'object' &&
+      attributes !== null &&
+      typeof (attributes as Record<string, unknown>).inserted_at === 'string';
+  }
+
+  function isVocabIndexResponse(value: unknown): value is { data: VocabApiEntry[] } {
+    if (typeof value !== 'object' || value === null) return false;
+    const data = (value as Record<string, unknown>).data;
+    return Array.isArray(data) && data.every(isVocabApiEntry);
   }
 
   function randomToken(byteLength: number): string {

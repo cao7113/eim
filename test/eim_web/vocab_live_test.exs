@@ -10,8 +10,127 @@ defmodule EimWeb.VocabLiveTest do
   test "requires a web login to access the learning center", %{conn: conn} do
     assert {:error, {:redirect, %{to: "/sign-in"}}} = live(conn, "/learn/vocab")
 
-    conn = get(build_conn(), "/learn/vocab?sort=asc")
-    assert get_session(conn, :return_to) == "/learn/vocab?sort=asc"
+    conn = get(build_conn(), "/learn/vocab?entry_id=entry-id&sort=asc")
+    assert get_session(conn, :return_to) == "/learn/vocab?entry_id=entry-id&sort=asc"
+  end
+
+  test "links to dictionary from the header and the vocabulary page", %{conn: conn} do
+    user = create_user("vocab-dictionary-navigation@example.com")
+    signed_in = signed_in_conn(conn, user)
+    {:ok, view, _} = live(signed_in, "/learn/vocab")
+
+    assert has_element?(
+             view,
+             "nav[aria-label='Main navigation'] #vocabulary-link + #dictionary-link[href='/dicts/ecdict']"
+           )
+
+    assert has_element?(view, "#vocab-workspace #vocab-dictionary-link[href='/dicts/ecdict']")
+    assert has_element?(view, "#vocab-workspace #vocab-subtitle", "Your saved words and notes")
+
+    {:ok, dictionary, _} =
+      view |> element("#vocab-dictionary-link") |> render_click() |> follow_redirect(signed_in)
+
+    assert has_element?(dictionary, "#ecdict-workspace")
+  end
+
+  test "dictionary remains available in the header when signed out", %{conn: conn} do
+    {:ok, view, _} = live(conn, "/dicts/ecdict")
+
+    assert has_element?(
+             view,
+             "nav[aria-label='Main navigation'] #dictionary-link[href='/dicts/ecdict']"
+           )
+
+    refute has_element?(view, "#vocabulary-link")
+  end
+
+  test "opens an owned entry from a learning-center deep link", %{conn: conn} do
+    user = create_user("vocab-live-deep-link@example.com")
+    entries = for index <- 1..11, do: create_entry(user, "linked#{index}")
+    entry = hd(entries)
+    old_date = DateTime.add(DateTime.utc_now(), -86_400, :second)
+
+    Eim.Repo.update_all(
+      from(vocab_entry in Entry, where: vocab_entry.id == ^entry.id),
+      set: [inserted_at: old_date, updated_at: old_date]
+    )
+
+    {:ok, view, _html} =
+      live(signed_in_conn(conn, user), "/learn/vocab?entry_id=#{entry.id}")
+
+    assert has_element?(view, "#vocab-detail-panel")
+    assert has_element?(view, "#vocab-detail-title", "linked")
+    assert has_element?(view, "#{entry_selector(entry.id)}[aria-current='true']")
+    assert has_element?(view, "#vocab-collected-#{entry.id}")
+
+    view
+    |> element("#vocab-detail-close")
+    |> render_click()
+
+    refute has_element?(view, "#vocab-detail-panel")
+  end
+
+  test "does not open another user's entry from a learning-center deep link", %{conn: conn} do
+    user = create_user("vocab-live-link-owner@example.com")
+    other_user = create_user("vocab-live-link-other@example.com")
+    entry = create_entry(other_user, "private")
+
+    {:ok, view, _html} =
+      live(signed_in_conn(conn, user), "/learn/vocab?entry_id=#{entry.id}")
+
+    refute has_element?(view, "#vocab-detail-panel")
+    refute has_element?(view, entry_selector(entry.id))
+  end
+
+  test "list shows phonetic, first available meaning, note and collection date", %{conn: conn} do
+    user = create_user("vocab-list-summary@example.com")
+
+    entry =
+      create_entry(user, "give", %{
+        phonetic: "ɡɪv",
+        note: "A personal reminder",
+        dictionary_snapshot: %{
+          "senses" => [
+            %{"zh" => ""},
+            %{"pos" => "v", "zh" => "给"},
+            %{"pos" => "n", "zh" => "弹性"}
+          ]
+        }
+      })
+
+    missing = create_entry(user, "missing")
+    collected_at = ~U[2024-02-03 04:05:06Z]
+
+    Eim.Repo.update_all(
+      from(vocab_entry in Entry, where: vocab_entry.id == ^entry.id),
+      set: [inserted_at: collected_at]
+    )
+
+    {:ok, view, _} = live(signed_in_conn(conn, user), "/learn/vocab")
+
+    assert has_element?(view, entry_selector(entry.id), "ɡɪv")
+    assert has_element?(view, "#vocab-list-meaning-#{entry.id}", "v 给")
+    refute has_element?(view, "#vocab-list-meaning-#{entry.id}", "弹性")
+    assert has_element?(view, "#vocab-list-note-#{entry.id}", "A personal reminder")
+
+    assert has_element?(
+             view,
+             "#vocab-list-collected-#{entry.id}[datetime^='2024-02-03T04:05:06']",
+             "Feb 03, 2024"
+           )
+
+    assert has_element?(view, "#vocab-list-meaning-#{missing.id}", "No saved definition")
+    assert has_element?(view, "#vocab-list-note-#{missing.id}", "No personal note")
+
+    view |> element(entry_selector(entry.id)) |> render_click()
+
+    view
+    |> element("#vocab-note-form-#{entry.id}")
+    |> render_change(%{"entry_note" => %{"note" => "Updated note"}})
+
+    assert has_element?(view, "#vocab-list-note-#{entry.id}", "Updated note")
+    assert has_element?(view, "#vocab-list-meaning-#{entry.id}", "v 给")
+    assert has_element?(view, "#vocab-list-collected-#{entry.id}", "Feb 03, 2024")
   end
 
   test "shows only the current user's entries and offers 10, 20, and 30 item pages", %{
@@ -44,15 +163,23 @@ defmodule EimWeb.VocabLiveTest do
 
     assert has_element?(view, "#vocab-shortcuts-dialog")
     assert has_element?(view, "#vocab-shortcuts-dialog", "Select next word")
+    assert has_element?(view, "#vocab-shortcuts-dialog", "j / ↓")
+    assert has_element?(view, "#vocab-shortcuts-dialog", "k / ↑")
+    assert has_element?(view, "#vocab-shortcuts-dialog", "Next page")
+    assert has_element?(view, "#vocab-shortcuts-dialog", "Previous page")
     assert has_element?(view, "#vocab-shortcuts-dialog", "Select first word")
     assert has_element?(view, "#vocab-shortcuts-dialog", "Select last word")
     assert has_element?(view, "#vocab-shortcuts-dialog", "Focus selected word's note")
     assert has_element?(view, "#vocab-shortcuts-dialog", "Exit field or close this guide")
 
     view
-    |> element("#vocab-shortcuts-close")
+    |> element("#vocab-shortcuts-backdrop")
     |> render_click()
 
+    refute has_element?(view, "#vocab-shortcuts-dialog")
+
+    view |> element("#vocab-shortcuts-open") |> render_click()
+    view |> element("#vocab-shortcuts-close") |> render_click()
     refute has_element?(view, "#vocab-shortcuts-dialog")
 
     view
@@ -74,7 +201,7 @@ defmodule EimWeb.VocabLiveTest do
 
     refute has_element?(view, "#vocab-detail-panel")
 
-    assert has_element?(view, "#vocab-page-previous.pointer-events-none")
+    assert has_element?(view, "button#vocab-page-previous[disabled]")
     refute has_element?(view, entry_selector(other_entry.id))
     assert has_element?(view, "#filters_per_page option[value='10']")
     assert has_element?(view, "#filters_per_page option[value='20']")
@@ -85,8 +212,7 @@ defmodule EimWeb.VocabLiveTest do
     |> render_change(%{"filters" => %{"q" => "", "sort" => "desc", "per_page" => "20"}})
 
     assert Enum.count(entries, &has_element?(view, entry_selector(&1.id))) == 20
-    assert has_element?(view, "#vocab-page-next")
-    refute has_element?(view, "#vocab-page-next.pointer-events-none")
+    assert has_element?(view, "a#vocab-page-next")
 
     view
     |> element("#vocab-pagination-form")
@@ -99,8 +225,8 @@ defmodule EimWeb.VocabLiveTest do
     |> render_click()
 
     assert Enum.count(entries, &has_element?(view, entry_selector(&1.id))) == 1
-    assert has_element?(view, "#vocab-page-next.pointer-events-none")
-    refute has_element?(view, "#vocab-page-previous.pointer-events-none")
+    assert has_element?(view, "button#vocab-page-next[disabled]")
+    assert has_element?(view, "a#vocab-page-previous")
 
     view
     |> element("#vocab-page-previous")
@@ -284,16 +410,19 @@ defmodule EimWeb.VocabLiveTest do
     })
   end
 
-  defp create_entry(user, term) do
+  defp create_entry(user, term, attrs \\ %{}) do
     {:ok, entry} =
       Ash.create(
         Entry,
-        %{
-          lookup_text: term,
-          lemma: term,
-          dictionary_snapshot: %{"senses" => []},
-          note: nil
-        },
+        Map.merge(
+          %{
+            lookup_text: term,
+            lemma: term,
+            dictionary_snapshot: %{"senses" => []},
+            note: nil
+          },
+          attrs
+        ),
         action: :create,
         domain: Eim.Vocab,
         actor: user

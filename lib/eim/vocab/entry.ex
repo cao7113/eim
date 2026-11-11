@@ -41,11 +41,7 @@ defmodule Eim.Vocab.Entry do
         lemma = Ash.Changeset.get_attribute(changeset, :lemma)
         term = if is_binary(lemma) and String.trim(lemma) != "", do: lemma, else: lookup_text
 
-        normalized_term =
-          term
-          |> String.normalize(:nfkc)
-          |> String.trim()
-          |> String.downcase()
+        normalized_term = term_key_for(term)
 
         if normalized_term == "" do
           Ash.Changeset.add_error(changeset,
@@ -114,7 +110,8 @@ defmodule Eim.Vocab.Entry do
       constraints max_length: 2000
     end
 
-    timestamps()
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at
   end
 
   relationships do
@@ -125,5 +122,12 @@ defmodule Eim.Vocab.Entry do
 
   identities do
     identity :unique_owner_term, [:user_id, :term_key]
+  end
+
+  def term_key_for(term) do
+    term
+    |> String.normalize(:nfkc)
+    |> String.trim()
+    |> String.downcase()
   end
 end

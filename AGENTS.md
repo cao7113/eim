@@ -20,6 +20,7 @@ custom classes must fully style the input
 
 ### JS and CSS guidelines
 
+- **Use the Bun toolchain for frontend work**: use `bun`/`bunx` for package management, scripts, checks, and builds; do not use Node.js or npm commands.
 - **Use Tailwind CSS classes and custom CSS rules** to create polished, responsive, and visually stunning interfaces.
 - Tailwindcss v4 **no longer needs a tailwind.config.js** and uses a new import syntax in `app.css`:
 

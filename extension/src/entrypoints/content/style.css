@@ -139,6 +139,24 @@
     font-weight: 650;
 }
 
+.eim-saved-date {
+    color: #94a3b8;
+    font-size: 12px;
+}
+
+.eim-study-link {
+    margin-left: auto;
+    color: #d9f99d;
+    font-size: 12px;
+    text-decoration: none;
+}
+
+.eim-study-link:hover {
+    color: #ecfccb;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
 .eim-note-label {
     flex-basis: 100%;
     color: #cbd5e1;

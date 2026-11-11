@@ -51,7 +51,7 @@ defmodule EimWeb.Layouts do
           </span>
           <span class="text-lg font-semibold tracking-tight text-slate-950">eim</span>
         </a>
-        <div class="flex items-center gap-3 sm:gap-6">
+        <div class="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-x-3 gap-y-2 sm:gap-6">
           <%= if @dev_routes_enabled do %>
             <div id="dev-tools" class="dev-tools group relative">
               <button
@@ -100,14 +100,22 @@ defmodule EimWeb.Layouts do
               </div>
             </div>
           <% end %>
+          <a
+            :if={@current_user}
+            id="vocabulary-link"
+            href="/learn/vocab"
+            class="text-sm font-semibold text-slate-700 transition hover:text-slate-950"
+          >
+            Vocabulary
+          </a>
+          <a
+            id="dictionary-link"
+            href="/dicts/ecdict"
+            class="text-sm font-semibold text-slate-700 transition hover:text-slate-950"
+          >
+            Dictionary
+          </a>
           <%= if @current_user do %>
-            <a
-              id="vocabulary-link"
-              href="/learn/vocab"
-              class="text-sm font-semibold text-slate-700 transition hover:text-slate-950"
-            >
-              Vocabulary
-            </a>
             <span
               id="current-user-email"
               class="max-w-[9rem] truncate text-sm font-medium text-slate-600 sm:max-w-none"
