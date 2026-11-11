@@ -1,42 +1,222 @@
 <script lang="ts">
-  import svelteLogo from '../../assets/svelte.svg'
-  import Counter from '../../lib/Counter.svelte'
+  import { onMount } from 'svelte';
+  import type {
+    DictionaryConnection,
+    ExtensionAccount,
+    ExtensionActionResult,
+    ExtensionAuthResult,
+  } from '../../shared/dictionary';
+
+  let enabled = $state(true);
+  let connection = $state<'checking' | DictionaryConnection['status']>('checking');
+  let account = $state<ExtensionAccount>({ status: 'signed_out' });
+  let saving = $state(false);
+  let authBusy = $state(false);
+  let settingsError = $state('');
+  let authError = $state('');
+
+  onMount(() => {
+    void loadLookupSetting();
+    void refreshConnection();
+    void refreshAccount();
+  });
+
+  async function loadLookupSetting() {
+    try {
+      const settings = (await browser.runtime.sendMessage({
+        type: 'get-lookup-setting',
+      })) as { enabled: boolean };
+      enabled = settings.enabled;
+    } catch (error) {
+      console.error('Unable to load extension settings:', error);
+      settingsError = '无法读取插件设置。';
+    }
+  }
+
+  async function refreshConnection() {
+    connection = 'checking';
+
+    try {
+      const result = (await browser.runtime.sendMessage({
+        type: 'check-api-connection',
+      })) as DictionaryConnection;
+      connection = result.status;
+    } catch (error) {
+      console.error('Unable to check dictionary service:', error);
+      connection = 'offline';
+    }
+  }
+
+  async function toggleLookup() {
+    saving = true;
+    settingsError = '';
+    const nextEnabled = !enabled;
+
+    try {
+      const result = await browser.runtime.sendMessage({
+        type: 'set-lookup-setting',
+        enabled: nextEnabled,
+      });
+
+      if (!result?.ok) throw new Error('Background could not save the setting');
+      enabled = nextEnabled;
+    } catch (error) {
+      console.error('Unable to save extension settings:', error);
+      settingsError = '保存设置失败，请重试。';
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function refreshAccount() {
+    try {
+      account = (await browser.runtime.sendMessage({
+        type: 'get-extension-account',
+      })) as ExtensionAccount;
+    } catch (error) {
+      console.error('Unable to load extension account:', error);
+      account = { status: 'offline' };
+    }
+  }
+
+  async function connectAccount() {
+    authBusy = true;
+    authError = '';
+
+    try {
+      const result = (await browser.runtime.sendMessage({
+        type: 'connect-extension-account',
+      })) as ExtensionAuthResult;
+
+      if (!result.ok) {
+        authError =
+          result.error === 'unavailable'
+            ? '无法连接 Eim 服务，请稍后重试。'
+            : '登录连接失败，请重新尝试。';
+        return;
+      }
+
+      account = result.account;
+    } catch (error) {
+      console.error('Extension account authorization failed:', error);
+      authError = '登录已取消或连接失败，请重试。';
+    } finally {
+      authBusy = false;
+    }
+  }
+
+  async function disconnectAccount() {
+    authBusy = true;
+    authError = '';
+
+    try {
+      const result = (await browser.runtime.sendMessage({
+        type: 'disconnect-extension-account',
+      })) as ExtensionActionResult;
+
+      if (result.ok) {
+        account = { status: 'signed_out' };
+      } else {
+        authError =
+          result.error === 'unavailable'
+            ? '无法连接 Eim 服务，凭据尚未撤销。请稍后重试。'
+            : '退出失败，凭据尚未撤销。请重试。';
+      }
+    } catch (error) {
+      console.error('Extension account disconnect failed:', error);
+      authError = '退出失败，凭据尚未撤销。请重试。';
+    } finally {
+      authBusy = false;
+    }
+  }
+
 </script>
 
-<main>
-  <div>
-    <a href="https://wxt.dev" target="_blank" rel="noreferrer">
-      <img src="/wxt.svg" class="logo" alt="WXT Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank" rel="noreferrer">
-      <img src={svelteLogo} class="logo svelte" alt="Svelte Logo" />
-    </a>
-  </div>
-  <h1>WXT + Svelte</h1>
+<main class="panel">
+  <header class="brand">
+    <div class="brand-mark" aria-hidden="true">e</div>
+    <div>
+      <p class="eyebrow">ENGLISH IN CONTEXT</p>
+      <h1>Eim 划词助手</h1>
+    </div>
+  </header>
 
-  <div class="card">
-    <Counter />
-  </div>
+  <section class="setting-card" aria-labelledby="lookup-setting-title">
+    <div class="setting-copy">
+      <h2 id="lookup-setting-title">划词查词</h2>
+      <p>{enabled ? '选中单词或短语时自动显示释义' : '已暂停，不会自动查询'}</p>
+    </div>
+    <button
+      class:enabled
+      class="switch"
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label="启用划词查词"
+      disabled={saving}
+      onclick={toggleLookup}
+    >
+      <span></span>
+    </button>
+  </section>
 
-  <p class="read-the-docs">
-    Click on the WXT and Svelte logos to learn more
-  </p>
+  <section class="service-card" aria-live="polite">
+    <div class="service-heading">
+      <div>
+        <p class="eyebrow">DICTIONARY SERVICE</p>
+        <h2>词典服务</h2>
+      </div>
+      <span class:online={connection === 'connected'} class:offline={connection === 'offline'} class="status-dot"></span>
+    </div>
+    <p class="service-status">
+      {#if connection === 'checking'}
+        正在检查连接…
+      {:else if connection === 'connected'}
+        服务已连接
+      {:else if connection === 'unconfigured'}
+        当前版本尚未配置服务地址
+      {:else}
+        无法连接服务，请确认本地服务已启动
+      {/if}
+    </p>
+    <button class="text-button" type="button" onclick={refreshConnection} disabled={connection === 'checking'}>
+      重新检查
+    </button>
+  </section>
+
+  {#if settingsError}
+    <p class="error-message" role="alert">{settingsError}</p>
+  {/if}
+
+  <section class="account">
+    <div>
+      <h2>连接 Eim 账号</h2>
+      {#if account.status === 'signed_in'}
+        <p>已登录：{account.email}</p>
+      {:else if account.status === 'offline' && account.email}
+        <p>{account.email} · 服务暂时离线</p>
+      {:else if account.status === 'offline'}
+        <p>无法验证账号状态，请检查服务连接。</p>
+      {:else}
+        <p>登录后即可使用账号同步功能。</p>
+      {/if}
+    </div>
+    {#if account.status === 'signed_in' || (account.status === 'offline' && account.email)}
+      <button class="login-button secondary" type="button" disabled={authBusy} onclick={disconnectAccount}>
+        退出登录
+      </button>
+    {:else}
+      <button class="login-button" type="button" disabled={authBusy} onclick={connectAccount}>
+        {authBusy ? '连接中…' : '登录连接'}
+      </button>
+    {/if}
+  </section>
+
+  {#if authError}
+    <p class="error-message" role="alert">{authError}</p>
+  {/if}
+
+  <footer>
+    收藏与笔记将保存到你的 Eim 学习中心
+  </footer>
 </main>
-
-<style>
-  .logo {
-    height: 6em;
-    padding: 1.5em;
-    will-change: filter;
-    transition: filter 300ms;
-  }
-  .logo:hover {
-    filter: drop-shadow(0 0 2em #54bc4ae0);
-  }
-  .logo.svelte:hover {
-    filter: drop-shadow(0 0 2em #ff3e00aa);
-  }
-  .read-the-docs {
-    color: #888;
-  }
-</style>

@@ -26,7 +26,20 @@ defmodule EimWeb.Router do
 
     plug :load_from_bearer
     plug :set_actor, :user
+    plug :require_vocab_actor
   end
+
+  defp require_vocab_actor(%{request_path: "/api/vocab/" <> _} = conn, _opts) do
+    if Ash.PlugHelpers.get_actor(conn) do
+      conn
+    else
+      conn
+      |> Plug.Conn.send_resp(:unauthorized, "Authentication required")
+      |> Plug.Conn.halt()
+    end
+  end
+
+  defp require_vocab_actor(conn, _opts), do: conn
 
   scope "/", EimWeb do
     pipe_through :browser
@@ -49,6 +62,8 @@ defmodule EimWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+
+    get "/extension/authorize", ExtensionAuthController, :authorize
     auth_routes AuthController, Eim.Accounts.User, path: "/auth"
 
     sign_out_route AuthController, "/sign-out",
@@ -79,6 +94,10 @@ defmodule EimWeb.Router do
 
   scope "/api" do
     pipe_through [:api]
+
+    post "/extension/token", EimWeb.ExtensionAuthController, :exchange
+    get "/extension/me", EimWeb.ExtensionAuthController, :me
+    delete "/extension/session", EimWeb.ExtensionAuthController, :revoke
 
     forward "/swaggerui", OpenApiSpex.Plug.SwaggerUI,
       path: "/api/open_api",

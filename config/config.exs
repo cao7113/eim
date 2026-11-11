@@ -91,7 +91,7 @@ config :spark,
 config :eim,
   ecto_repos: [Eim.Repo],
   generators: [timestamp_type: :utc_datetime],
-  ash_domains: [Eim.Accounts, Eim.Dict]
+  ash_domains: [Eim.Accounts, Eim.Dict, Eim.Vocab]
 
 # Configure the endpoint
 config :eim, EimWeb.Endpoint,
