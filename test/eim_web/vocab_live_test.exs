@@ -108,7 +108,8 @@ defmodule EimWeb.VocabLiveTest do
 
     {:ok, view, _} = live(signed_in_conn(conn, user), "/learn/vocab")
 
-    assert has_element?(view, entry_selector(entry.id), "ɡɪv")
+    assert has_element?(view, "#vocab-list-phonetic-#{entry.id}", "/ɡɪv/")
+    refute has_element?(view, "#vocab-list-phonetic-#{missing.id}")
     assert has_element?(view, "#vocab-list-meaning-#{entry.id}", "v 给")
     refute has_element?(view, "#vocab-list-meaning-#{entry.id}", "弹性")
     assert has_element?(view, "#vocab-list-note-#{entry.id}", "A personal reminder")
@@ -123,6 +124,7 @@ defmodule EimWeb.VocabLiveTest do
     assert has_element?(view, "#vocab-list-note-#{missing.id}", "No personal note")
 
     view |> element(entry_selector(entry.id)) |> render_click()
+    assert has_element?(view, "#vocab-detail-phonetic", "/ɡɪv/")
 
     view
     |> element("#vocab-note-form-#{entry.id}")
@@ -131,6 +133,24 @@ defmodule EimWeb.VocabLiveTest do
     assert has_element?(view, "#vocab-list-note-#{entry.id}", "Updated note")
     assert has_element?(view, "#vocab-list-meaning-#{entry.id}", "v 给")
     assert has_element?(view, "#vocab-list-collected-#{entry.id}", "Feb 03, 2024")
+  end
+
+  test "preserves phonetic values already enclosed in slashes", %{conn: conn} do
+    user = create_user("vocab-phonetic-format@example.com")
+    entry = create_entry(user, "hello", %{phonetic: " /həˈləʊ/ "})
+    blank = create_entry(user, "blank", %{phonetic: "  "})
+    {:ok, view, _} = live(signed_in_conn(conn, user), "/learn/vocab")
+
+    assert has_element?(view, "#vocab-list-phonetic-#{entry.id}", "/həˈləʊ/")
+    refute has_element?(view, "#vocab-list-phonetic-#{entry.id}", "//həˈləʊ//")
+    refute has_element?(view, "#vocab-list-phonetic-#{blank.id}")
+
+    view |> element(entry_selector(entry.id)) |> render_click()
+    assert has_element?(view, "#vocab-detail-phonetic", "/həˈləʊ/")
+    refute has_element?(view, "#vocab-detail-phonetic", "//həˈləʊ//")
+
+    view |> element(entry_selector(blank.id)) |> render_click()
+    refute has_element?(view, "#vocab-detail-phonetic")
   end
 
   test "shows only the current user's entries and offers 10, 20, and 30 item pages", %{

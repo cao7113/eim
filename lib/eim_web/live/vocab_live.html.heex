@@ -155,10 +155,11 @@
                   {main_term(entry)}
                 </span>
                 <span
-                  :if={entry.phonetic not in [nil, ""]}
+                  :if={format_phonetic(entry.phonetic)}
+                  id={"vocab-list-phonetic-#{entry.id}"}
                   class="truncate text-xs text-slate-500"
                 >
-                  {entry.phonetic}
+                  {format_phonetic(entry.phonetic)}
                 </span>
               </span>
               <span
@@ -223,8 +224,11 @@
                 <span :if={@selected_entry.lookup_text != main_term(@selected_entry)}>
                   looked up as {@selected_entry.lookup_text}
                 </span>
-                <span :if={@selected_entry.phonetic not in [nil, ""]}>
-                  {@selected_entry.phonetic}
+                <span
+                  :if={format_phonetic(@selected_entry.phonetic)}
+                  id="vocab-detail-phonetic"
+                >
+                  {format_phonetic(@selected_entry.phonetic)}
                 </span>
               </div>
             </div>

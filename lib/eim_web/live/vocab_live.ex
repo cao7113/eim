@@ -526,6 +526,18 @@ defmodule EimWeb.VocabLive do
   defp main_term(%Entry{lemma: lemma}) when is_binary(lemma) and lemma != "", do: lemma
   defp main_term(%Entry{lookup_text: lookup_text}), do: lookup_text
 
+  defp format_phonetic(nil), do: nil
+
+  defp format_phonetic(phonetic) do
+    phonetic = String.trim(phonetic)
+
+    cond do
+      phonetic == "" -> nil
+      String.starts_with?(phonetic, "/") and String.ends_with?(phonetic, "/") -> phonetic
+      true -> "/#{phonetic}/"
+    end
+  end
+
   defp collected_on(%Entry{inserted_at: inserted_at}) do
     inserted_at
     |> DateTime.to_date()
