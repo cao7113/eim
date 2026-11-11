@@ -41,6 +41,9 @@ defmodule EimWeb.PageControllerTest do
     assert response =~ ~s(id="current-user-email")
     assert response =~ "reader@example.com"
     assert response =~ ~s(id="sign-out-link")
+    assert response =~ ~s(id="vocabulary-link")
+    assert response =~ ~s(href="/learn/vocab")
+    assert response =~ "Open Vocabulary"
     refute response =~ ~s(href="/sign-in")
   end
 end

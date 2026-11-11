@@ -81,6 +81,38 @@ defmodule EimWeb.VocabJsonApiTest do
     assert conn.status in [401, 403]
   end
 
+  test "rejects unauthenticated note updates and deletions", %{user: user} do
+    {:ok, entry} =
+      Ash.create(
+        Eim.Vocab.Entry,
+        entry_attributes("saved", "saved", nil),
+        action: :create,
+        domain: Eim.Vocab,
+        actor: user
+      )
+
+    conn =
+      build_conn()
+      |> put_req_header("accept", "application/vnd.api+json")
+      |> put_req_header("content-type", "application/vnd.api+json")
+      |> patch("/api/vocab/entries/#{entry.id}", %{
+        "data" => %{
+          "type" => "vocab-entry",
+          "id" => entry.id,
+          "attributes" => %{"note" => "not signed in"}
+        }
+      })
+
+    assert conn.status in [401, 403]
+
+    conn =
+      build_conn()
+      |> put_req_header("accept", "application/vnd.api+json")
+      |> delete("/api/vocab/entries/#{entry.id}")
+
+    assert conn.status in [401, 403]
+  end
+
   test "rejects notes longer than the documented limit", %{token: token, conn: conn} do
     conn =
       post_vocab_entry(
@@ -90,6 +122,98 @@ defmodule EimWeb.VocabJsonApiTest do
       )
 
     assert conn.status == 400
+  end
+
+  test "owners can update and clear their note but cannot update other entry attributes", %{
+    token: token,
+    user: user,
+    conn: conn
+  } do
+    conn = post_vocab_entry(conn, token, entry_attributes("gave", "give", "first note"))
+    assert %{"data" => %{"id" => id}} = json_response(conn, 201)
+
+    conn =
+      vocab_conn(token)
+      |> patch("/api/vocab/entries/#{id}", %{
+        "data" => %{
+          "type" => "vocab-entry",
+          "id" => id,
+          "attributes" => %{"note" => "updated note"}
+        }
+      })
+
+    assert %{"data" => %{"attributes" => %{"note" => "updated note"}}} =
+             json_response(conn, 200)
+
+    conn =
+      vocab_conn(token)
+      |> patch("/api/vocab/entries/#{id}", %{
+        "data" => %{
+          "type" => "vocab-entry",
+          "id" => id,
+          "attributes" => %{"lookup_text" => "changed"}
+        }
+      })
+
+    assert conn.status == 400
+
+    query = Ash.Query.filter(Eim.Vocab.Entry, id == ^id)
+    assert {:ok, [entry]} = Ash.read(query, domain: Eim.Vocab, actor: user)
+    assert entry.lookup_text == "gave"
+    assert entry.note == "updated note"
+
+    conn =
+      vocab_conn(token)
+      |> patch("/api/vocab/entries/#{id}", %{
+        "data" => %{
+          "type" => "vocab-entry",
+          "id" => id,
+          "attributes" => %{"note" => nil}
+        }
+      })
+
+    assert %{"data" => %{"attributes" => %{"note" => nil}}} = json_response(conn, 200)
+
+    conn =
+      vocab_conn(token)
+      |> delete("/api/vocab/entries/#{id}")
+
+    assert conn.status == 200
+    assert {:ok, []} = Ash.read(query, domain: Eim.Vocab, actor: user)
+  end
+
+  test "users cannot update or delete another user's entry", %{token: token} do
+    other_user = create_user("other-entry-owner@example.com")
+
+    {:ok, entry} =
+      Ash.create(Eim.Vocab.Entry, entry_attributes("other", "other", nil),
+        action: :create,
+        domain: Eim.Vocab,
+        actor: other_user
+      )
+
+    conn =
+      vocab_conn(token)
+      |> patch("/api/vocab/entries/#{entry.id}", %{
+        "data" => %{
+          "type" => "vocab-entry",
+          "id" => entry.id,
+          "attributes" => %{"note" => "not allowed"}
+        }
+      })
+
+    assert conn.status in [403, 404]
+
+    conn =
+      vocab_conn(token)
+      |> delete("/api/vocab/entries/#{entry.id}")
+
+    assert conn.status in [403, 404]
+
+    assert {:ok, [remaining_entry]} =
+             Ash.read(Eim.Vocab.Entry, domain: Eim.Vocab, actor: other_user)
+
+    assert remaining_entry.id == entry.id
   end
 
   test "does not accept an owner supplied by the client", %{user: user, token: token, conn: conn} do
@@ -118,6 +242,8 @@ defmodule EimWeb.VocabJsonApiTest do
     spec = conn |> response(200) |> Jason.decode!()
 
     assert is_map(spec["paths"]["/api/vocab/entries"])
+    assert is_map(spec["paths"]["/api/vocab/entries/{id}"]["patch"])
+    assert is_map(spec["paths"]["/api/vocab/entries/{id}"]["delete"])
   end
 
   defp post_vocab_entry(conn, token, attrs) do
@@ -139,6 +265,13 @@ defmodule EimWeb.VocabJsonApiTest do
         "attributes" => attrs
       }
     })
+  end
+
+  defp vocab_conn(token) do
+    build_conn()
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
+    |> put_req_header("authorization", "Bearer " <> token)
   end
 
   defp entry_attributes(text, lemma, note) do

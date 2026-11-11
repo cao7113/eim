@@ -328,7 +328,7 @@
               <div class="eim-note-count">{note.length}/{maxNoteLength}</div>
             {/if}
             <button class="eim-action" type="button" disabled={vocabBusy} onclick={saveVocabEntry}>
-              {vocabBusy ? '收藏中…' : '收藏词条'}
+              {vocabBusy ? '收藏中…' : '收藏'}
             </button>
           {/if}
           {#if vocabError}<p class="eim-state eim-error" role="alert">{vocabError}</p>{/if}

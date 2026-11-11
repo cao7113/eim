@@ -1,0 +1,588 @@
+<Layouts.app flash={@flash} current_user={@current_user}>
+  <section class="py-5 sm:py-7">
+    <div id="vocab-workspace" phx-hook=".VocabKeyboard" class="mx-auto max-w-6xl">
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <h1 class="text-2xl font-semibold tracking-tight text-slate-950">Vocabulary</h1>
+        <button
+          id="vocab-shortcuts-open"
+          type="button"
+          phx-click="show-shortcuts"
+          class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-lime-300 hover:text-lime-800"
+          aria-haspopup="dialog"
+        >
+          <kbd class="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono">?</kbd>
+          Shortcuts
+        </button>
+      </div>
+
+      <div class="mb-3">
+        <.form
+          for={@filter_form}
+          id="vocab-search-form"
+          phx-change="filter"
+          class="mx-auto flex h-8 max-w-3xl items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 shadow-sm transition hover:border-slate-300 focus-within:border-lime-400 focus-within:ring-4 focus-within:ring-lime-100/70"
+        >
+          <div class="relative flex h-full min-w-0 flex-1 items-center">
+            <.icon
+              name="hero-magnifying-glass"
+              class="pointer-events-none absolute left-1 top-1/2 size-4 -translate-y-1/2 text-slate-500"
+            />
+            <input
+              id="filters_q"
+              name="filters[q]"
+              type="search"
+              value={@search}
+              aria-label="Search vocabulary"
+              placeholder="Hit words you love..."
+              phx-debounce="300"
+              class="h-full w-full border-0 bg-transparent pl-8 pr-3 text-sm leading-5 text-slate-900 outline-none placeholder:text-slate-500 placeholder:opacity-100 focus:ring-0"
+            />
+          </div>
+          <span
+            id="vocab-search-hits"
+            class="shrink-0 whitespace-nowrap text-xs leading-5 tabular-nums text-slate-500"
+          >
+            {@total_count} {hit_count_label(@search, @total_count)}
+          </span>
+          <input type="hidden" name="filters[sort]" value={@sort} />
+          <input type="hidden" name="filters[per_page]" value={@per_page} />
+        </.form>
+      </div>
+
+      <div
+        :if={@load_error}
+        id="vocab-load-error"
+        class="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+        role="alert"
+      >
+        {@load_error}
+      </div>
+
+      <div
+        :if={!@load_error && @total_count == 0 && @search == ""}
+        id="vocab-empty-state"
+        class="mt-8 rounded-3xl border border-dashed border-slate-300 bg-white/70 px-6 py-14 text-center"
+      >
+        <span class="mx-auto flex size-14 items-center justify-center rounded-2xl bg-lime-100 text-lime-800">
+          <.icon name="hero-bookmark" class="size-7" />
+        </span>
+        <h2 class="mt-5 text-xl font-semibold text-slate-900">Your vocabulary starts here</h2>
+        <p class="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-600">
+          Save a word from the browser extension and it will appear in this personal learning space.
+        </p>
+      </div>
+
+      <div
+        :if={!@load_error && @total_count == 0 && @search != ""}
+        id="vocab-no-results"
+        class="mt-8 rounded-3xl border border-slate-200 bg-white px-6 py-12 text-center"
+      >
+        <h2 class="text-lg font-semibold text-slate-900">No matching words</h2>
+        <p class="mt-2 text-sm text-slate-600">Try another spelling or clear your search.</p>
+        <.link
+          id="vocab-clear-search"
+          patch={vocab_path("", @sort, @per_page, 1)}
+          class="mt-4 inline-flex text-sm font-semibold text-lime-800 hover:text-lime-900"
+        >
+          Clear search
+        </.link>
+      </div>
+
+      <div
+        :if={!@load_error && @total_count > 0}
+        class="mt-5 grid items-start gap-4 lg:grid-cols-[minmax(18rem,0.82fr)_minmax(0,1.18fr)]"
+      >
+        <div id="vocab-list-pane" class="min-w-0">
+          <div class="mb-2 flex items-center justify-between gap-3 px-1">
+            <h2 class="text-sm font-semibold text-slate-800">Your words</h2>
+            <div class="flex items-center gap-2">
+              <label for="filters_sort" class="text-xs text-slate-500">Sort by</label>
+              <.form
+                for={@filter_form}
+                id="vocab-sort-form"
+                phx-change="filter"
+                class="[&_.fieldset]:mb-0"
+              >
+                <input type="hidden" name="filters[q]" value={@search} />
+                <input type="hidden" name="filters[per_page]" value={@per_page} />
+                <.input
+                  field={@filter_form[:sort]}
+                  type="select"
+                  label=""
+                  aria-label="Sort vocabulary"
+                  options={[{"Recently updated", "desc"}, {"Least recently updated", "asc"}]}
+                  class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none transition focus:border-lime-600 focus:ring-2 focus:ring-lime-100"
+                />
+              </.form>
+            </div>
+          </div>
+
+          <div
+            id="vocab-entry-list"
+            phx-update="stream"
+            class="max-h-[min(72vh,48rem)] overflow-y-auto rounded-2xl border border-slate-200/80 bg-white shadow-sm"
+            aria-label="Vocabulary list"
+          >
+            <button
+              :for={{dom_id, entry} <- @streams.entries}
+              id={dom_id}
+              type="button"
+              data-vocab-entry={entry.id}
+              aria-current={@selected_id == entry.id && "true"}
+              phx-click="select-entry"
+              phx-value-id={entry.id}
+              class={[
+                "flex h-[5.5rem] w-full flex-col justify-center gap-1 border-b border-slate-100 px-4 text-left transition first:rounded-t-2xl last:rounded-b-2xl last:border-b-0 hover:bg-lime-50/60 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-lime-600",
+                @selected_id == entry.id && "bg-lime-50 ring-1 ring-inset ring-lime-200"
+              ]}
+            >
+              <span class="flex min-w-0 items-baseline gap-2">
+                <span class="truncate text-sm font-semibold text-slate-900">
+                  {main_term(entry)}
+                </span>
+                <span
+                  :if={entry.phonetic not in [nil, ""]}
+                  class="truncate text-xs text-slate-500"
+                >
+                  {entry.phonetic}
+                </span>
+              </span>
+              <span
+                id={"vocab-list-note-#{entry.id}"}
+                class="block truncate text-xs text-slate-500"
+              >
+                {if entry.note in [nil, ""], do: "No personal note", else: entry.note}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div
+          :if={!@selected_entry}
+          id="vocab-detail-placeholder"
+          class="hidden min-h-72 flex-col items-center justify-center self-stretch rounded-2xl border border-dashed border-slate-300 bg-white/70 px-6 text-center lg:flex"
+        >
+          <span class="flex size-12 items-center justify-center rounded-2xl bg-lime-100 text-lime-800">
+            <.icon name="hero-book-open" class="size-6" />
+          </span>
+          <span class="mt-4 text-sm font-semibold text-slate-800">Choose a word</span>
+          <span class="mt-1 text-xs text-slate-500">Press j/k to browse · i to add a note</span>
+        </div>
+
+        <button
+          :if={@selected_entry}
+          id="vocab-detail-backdrop"
+          type="button"
+          phx-click="close-details"
+          aria-label="Close vocabulary details"
+          class="fixed inset-0 z-30 bg-slate-950/30 backdrop-blur-[2px] lg:hidden"
+        />
+
+        <aside
+          :if={@selected_entry}
+          id="vocab-detail-panel"
+          class="fixed inset-x-3 bottom-3 top-14 z-40 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl lg:sticky lg:top-6 lg:col-start-2 lg:row-start-1 lg:h-[min(72vh,48rem)] lg:min-h-[32rem] lg:shadow-sm"
+          aria-label={"Details for #{main_term(@selected_entry)}"}
+        >
+          <header class="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+            <div class="min-w-0">
+              <h2
+                id="vocab-detail-title"
+                class="break-words text-xl font-semibold tracking-tight text-slate-950"
+              >
+                {main_term(@selected_entry)}
+              </h2>
+              <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
+                <span :if={@selected_entry.lookup_text != main_term(@selected_entry)}>
+                  looked up as {@selected_entry.lookup_text}
+                </span>
+                <span :if={@selected_entry.phonetic not in [nil, ""]}>
+                  {@selected_entry.phonetic}
+                </span>
+              </div>
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+              <%= if @delete_id == @selected_entry.id do %>
+                <div
+                  id={"vocab-delete-confirm-#{@selected_entry.id}"}
+                  class="flex items-center gap-2 rounded-xl bg-red-50 p-2"
+                >
+                  <span class="text-xs font-medium text-red-800">Remove?</span>
+                  <button
+                    id={"vocab-delete-#{@selected_entry.id}"}
+                    type="button"
+                    phx-click="delete-entry"
+                    phx-value-id={@selected_entry.id}
+                    class="rounded-lg bg-red-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-800"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    phx-click="cancel-delete"
+                    class="rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white"
+                  >
+                    Keep
+                  </button>
+                </div>
+              <% else %>
+                <button
+                  id={"vocab-delete-ask-#{@selected_entry.id}"}
+                  type="button"
+                  phx-click="ask-delete"
+                  phx-value-id={@selected_entry.id}
+                  aria-label={"Remove #{main_term(@selected_entry)}"}
+                  class="rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-700"
+                >
+                  <.icon name="hero-trash" class="size-4" />
+                </button>
+              <% end %>
+              <button
+                id="vocab-detail-close"
+                type="button"
+                phx-click="close-details"
+                aria-label="Close details"
+                class="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+              >
+                <.icon name="hero-x-mark" class="size-5" />
+              </button>
+            </div>
+          </header>
+
+          <div class="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
+            <section aria-labelledby="vocab-meaning-heading">
+              <h3
+                id="vocab-meaning-heading"
+                class="text-xs font-semibold uppercase tracking-wide text-slate-400"
+              >
+                Meaning
+              </h3>
+              <ul
+                :if={snapshot_senses(@selected_entry) != []}
+                id="vocab-detail-senses"
+                class="mt-3 space-y-3"
+              >
+                <li
+                  :for={sense <- snapshot_senses(@selected_entry)}
+                  class="text-sm leading-6 text-slate-700"
+                >
+                  <span
+                    :if={sense_label(sense) != ""}
+                    class="mr-2 text-xs font-medium text-slate-400"
+                  >
+                    {sense_label(sense)}
+                  </span>
+                  <span :if={sense_text(sense) not in [nil, ""]}>{sense_text(sense)}</span>
+                </li>
+              </ul>
+              <p
+                :if={snapshot_senses(@selected_entry) == []}
+                class="mt-2 text-sm text-slate-500"
+              >
+                No saved definition.
+              </p>
+            </section>
+
+            <section class="border-t border-slate-100 pt-5" aria-labelledby="vocab-note-heading">
+              <div class="mb-2 flex items-center justify-between gap-3">
+                <h3
+                  id="vocab-note-heading"
+                  class="text-xs font-semibold uppercase tracking-wide text-slate-400"
+                >
+                  Personal note
+                </h3>
+                <p
+                  :if={@note_saved && !@note_error}
+                  id={"vocab-note-saved-#{@selected_entry.id}"}
+                  class="text-xs text-emerald-700"
+                >
+                  Saved
+                </p>
+              </div>
+              <.form
+                for={@note_form}
+                id={"vocab-note-form-#{@selected_entry.id}"}
+                phx-change="autosave-note"
+              >
+                <textarea
+                  id={"vocab-note-input-#{@selected_entry.id}"}
+                  name="entry_note[note]"
+                  phx-blur="finish-note"
+                  maxlength="2000"
+                  phx-debounce="500"
+                  rows="5"
+                  placeholder="Add a note to remember this word…"
+                  class="block w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-2 text-left text-sm leading-6 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-lime-600 focus:ring-2 focus:ring-lime-100"
+                >{@note_form[:note].value}</textarea>
+                <div class="mt-1 flex items-center justify-between gap-3 text-xs text-slate-500">
+                  <span><span id={"vocab-note-count-#{@selected_entry.id}"}>{@note_count}</span>/2,000 · auto-saves</span>
+                </div>
+                <p
+                  :if={@note_error}
+                  id={"vocab-note-error-#{@selected_entry.id}"}
+                  class="mt-2 text-sm text-red-700"
+                  role="alert"
+                >
+                  {@note_error}
+                </p>
+              </.form>
+            </section>
+
+            <section
+              class="border-t border-slate-100 pt-5"
+              aria-labelledby="vocab-collection-heading"
+            >
+              <h3
+                id="vocab-collection-heading"
+                class="text-xs font-semibold uppercase tracking-wide text-slate-400"
+              >
+                Collection
+              </h3>
+              <p class="mt-2 text-sm text-slate-600">
+                Collected
+                <time
+                  id={"vocab-collected-#{@selected_entry.id}"}
+                  datetime={DateTime.to_iso8601(@selected_entry.inserted_at)}
+                >{collected_on(@selected_entry)}</time>
+              </p>
+            </section>
+          </div>
+        </aside>
+      </div>
+
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".VocabKeyboard">
+        export default {
+          mounted() {
+            this.focusAtEnd = element => {
+              if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) return
+
+              element.focus()
+              const end = element.value.length
+              element.setSelectionRange(end, end)
+            }
+
+            this.onKeydown = event => {
+              const target = event.target
+              const isEditable = target instanceof HTMLElement &&
+                target.matches("input, textarea, select, [contenteditable='true']")
+
+              if (event.key === "Escape" && this.el.querySelector("#vocab-shortcuts-dialog")) {
+                event.preventDefault()
+                this.pushEvent("hide-shortcuts", {})
+                return
+              }
+
+              if (this.el.querySelector("#vocab-shortcuts-dialog")) return
+
+              if (event.key === "Escape" && isEditable && target instanceof HTMLElement) {
+                event.preventDefault()
+                target.blur()
+                return
+              }
+
+              if (event.key === "/" && !isEditable && !event.metaKey && !event.ctrlKey && !event.altKey) {
+                event.preventDefault()
+                this.focusAtEnd(this.el.querySelector("#filters_q"))
+                return
+              }
+
+              if (event.key === "?" && !isEditable && !event.metaKey && !event.ctrlKey && !event.altKey) {
+                event.preventDefault()
+                this.pushEvent("show-shortcuts", {})
+                return
+              }
+
+              if (isEditable || event.metaKey || event.ctrlKey || event.altKey) return
+
+              if (event.key === "j" || event.key === "k") {
+                const rows = [...this.el.querySelectorAll("#vocab-entry-list [data-vocab-entry]")]
+                if (rows.length === 0) return
+
+                event.preventDefault()
+                const focused = rows.indexOf(document.activeElement)
+                const selected = rows.findIndex(row => row.getAttribute("aria-current") === "true")
+                const current = focused >= 0 ? focused : selected
+                const next = event.key === "j"
+                  ? Math.min(current + 1, rows.length - 1)
+                  : Math.max(current < 0 ? 0 : current - 1, 0)
+
+                rows[next].focus()
+                rows[next].click()
+                return
+              }
+
+              if (event.key === "i") {
+                const rows = [...this.el.querySelectorAll("#vocab-entry-list [data-vocab-entry]")]
+                if (rows.length === 0) return
+
+                const focused = rows.indexOf(document.activeElement)
+                const selected = rows.findIndex(row => row.getAttribute("aria-current") === "true")
+                const index = focused >= 0 ? focused : selected >= 0 ? selected : 0
+
+                event.preventDefault()
+                if (index !== selected) {
+                  this.pendingNoteFocus = true
+                  rows[index].click()
+                } else {
+                  this.focusAtEnd(
+                    this.el.querySelector("#vocab-note-input-" + rows[index].dataset.vocabEntry)
+                  )
+                }
+              }
+            }
+
+            document.addEventListener("keydown", this.onKeydown)
+          },
+          updated() {
+            if (this.pendingNoteFocus) {
+              this.pendingNoteFocus = false
+              this.focusAtEnd(
+                this.el.querySelector("#vocab-note-input-" + this.el.querySelector("#vocab-entry-list [aria-current='true']")?.dataset.vocabEntry)
+              )
+            }
+          },
+          destroyed() {
+            document.removeEventListener("keydown", this.onKeydown)
+          }
+        }
+      </script>
+
+      <div
+        :if={@shortcuts_open}
+        id="vocab-shortcuts-dialog"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-[2px]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="vocab-shortcuts-title"
+      >
+        <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 id="vocab-shortcuts-title" class="text-lg font-semibold text-slate-900">
+                Keyboard shortcuts
+              </h2>
+              <p class="mt-1 text-sm text-slate-500">
+                Navigate your vocabulary without leaving the keyboard.
+              </p>
+            </div>
+            <button
+              id="vocab-shortcuts-close"
+              type="button"
+              phx-click="hide-shortcuts"
+              aria-label="Close keyboard shortcuts"
+              class="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+            >
+              <.icon name="hero-x-mark" class="size-5" />
+            </button>
+          </div>
+          <dl class="mt-5 divide-y divide-slate-100">
+            <div class="flex items-center justify-between gap-4 py-3">
+              <dt class="text-sm text-slate-700">Select next word</dt>
+              <dd>
+                <kbd class="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs">j</kbd>
+              </dd>
+            </div>
+            <div class="flex items-center justify-between gap-4 py-3">
+              <dt class="text-sm text-slate-700">Select previous word</dt>
+              <dd>
+                <kbd class="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs">k</kbd>
+              </dd>
+            </div>
+            <div class="flex items-center justify-between gap-4 py-3">
+              <dt class="text-sm text-slate-700">Focus selected word's note</dt>
+              <dd>
+                <kbd class="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs">i</kbd>
+              </dd>
+            </div>
+            <div class="flex items-center justify-between gap-4 py-3">
+              <dt class="text-sm text-slate-700">Focus search</dt>
+              <dd>
+                <kbd class="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs">/</kbd>
+              </dd>
+            </div>
+            <div class="flex items-center justify-between gap-4 py-3">
+              <dt class="text-sm text-slate-700">Exit field or close this guide</dt>
+              <dd>
+                <kbd class="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs">Esc</kbd>
+              </dd>
+            </div>
+            <div class="flex items-center justify-between gap-4 py-3">
+              <dt class="text-sm text-slate-700">Show this guide</dt>
+              <dd>
+                <kbd class="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs">?</kbd>
+              </dd>
+            </div>
+          </dl>
+          <p class="mt-3 text-xs leading-5 text-slate-400">
+            Shortcuts are paused while typing in a field.
+          </p>
+        </div>
+      </div>
+
+      <nav
+        :if={!@load_error && @total_count > 0}
+        id="vocab-pagination"
+        aria-label="Vocabulary pages"
+        class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white px-3 py-2.5 sm:px-4"
+      >
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500">
+          <span id="vocab-entry-count" class="font-medium text-slate-600">
+            Showing {min((@page - 1) * @per_page + 1, @total_count)}–{min(
+              @page * @per_page,
+              @total_count
+            )} of {@total_count}
+          </span>
+          <div class="flex items-center gap-2">
+            <label for="filters_per_page" class="whitespace-nowrap">Per page</label>
+            <.form
+              for={@filter_form}
+              id="vocab-pagination-form"
+              phx-change="filter"
+              class="[&_.fieldset]:mb-0"
+            >
+              <input type="hidden" name="filters[q]" value={@search} />
+              <input type="hidden" name="filters[sort]" value={@sort} />
+              <.input
+                field={@filter_form[:per_page]}
+                type="select"
+                label=""
+                aria-label="Entries per page"
+                options={[{"10", "10"}, {"20", "20"}, {"30", "30"}]}
+                class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none transition focus:border-lime-600 focus:ring-2 focus:ring-lime-100"
+              />
+            </.form>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <p class="mr-1 whitespace-nowrap text-xs text-slate-500">
+            Page {@page} of {@page_count}
+          </p>
+          <.link
+            id="vocab-page-previous"
+            patch={vocab_path(@search, @sort, @per_page, @page - 1)}
+            aria-disabled={@page <= 1}
+            class={[
+              "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+              @page <= 1 && "pointer-events-none border-slate-100 text-slate-300",
+              @page > 1 && "border-slate-200 text-slate-700 hover:bg-slate-50"
+            ]}
+          >
+            Previous
+          </.link>
+          <.link
+            id="vocab-page-next"
+            patch={vocab_path(@search, @sort, @per_page, @page + 1)}
+            aria-disabled={@page >= @page_count}
+            class={[
+              "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+              @page >= @page_count && "pointer-events-none border-slate-100 text-slate-300",
+              @page < @page_count && "border-slate-200 text-slate-700 hover:bg-slate-50"
+            ]}
+          >
+            Next
+          </.link>
+        </div>
+      </nav>
+    </div>
+  </section>
+</Layouts.app>

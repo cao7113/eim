@@ -14,6 +14,7 @@ defmodule EimWeb.Router do
     plug :protect_from_forgery
     plug :put_secure_browser_headers
     plug :load_from_session
+    plug :store_vocab_return_to
   end
 
   pipeline :api do
@@ -41,10 +42,26 @@ defmodule EimWeb.Router do
 
   defp require_vocab_actor(conn, _opts), do: conn
 
+  defp store_vocab_return_to(%{request_path: "/learn/vocab"} = conn, _opts) do
+    if conn.assigns[:current_user] do
+      conn
+    else
+      return_to =
+        conn.request_path <> if(conn.query_string == "", do: "", else: "?" <> conn.query_string)
+
+      Plug.Conn.put_session(conn, :return_to, return_to)
+    end
+  end
+
+  defp store_vocab_return_to(conn, _opts), do: conn
+
   scope "/", EimWeb do
     pipe_through :browser
 
-    ash_authentication_live_session :authenticated_routes do
+    ash_authentication_live_session :authenticated_routes,
+      on_mount: [{EimWeb.LiveUserAuth, :live_user_required}] do
+      live "/learn/vocab", VocabLive, :index
+
       # in each liveview, add one of the following at the top of the module:
       #
       # If an authenticated user must be present:

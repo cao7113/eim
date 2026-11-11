@@ -101,6 +101,13 @@ defmodule EimWeb.Layouts do
             </div>
           <% end %>
           <%= if @current_user do %>
+            <a
+              id="vocabulary-link"
+              href="/learn/vocab"
+              class="text-sm font-semibold text-slate-700 transition hover:text-slate-950"
+            >
+              Vocabulary
+            </a>
             <span
               id="current-user-email"
               class="max-w-[9rem] truncate text-sm font-medium text-slate-600 sm:max-w-none"

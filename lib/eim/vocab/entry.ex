@@ -19,6 +19,8 @@ defmodule Eim.Vocab.Entry do
 
       index :read
       post :create
+      patch :update_note
+      delete :destroy
     end
   end
 
@@ -55,6 +57,12 @@ defmodule Eim.Vocab.Entry do
         end
       end
     end
+
+    update :update_note do
+      accept [:note]
+    end
+
+    destroy :destroy
   end
 
   policies do
@@ -63,6 +71,14 @@ defmodule Eim.Vocab.Entry do
     end
 
     policy action_type(:read) do
+      authorize_if relates_to_actor_via(:user)
+    end
+
+    policy action_type(:update) do
+      authorize_if relates_to_actor_via(:user)
+    end
+
+    policy action_type(:destroy) do
       authorize_if relates_to_actor_via(:user)
     end
   end
