@@ -44,6 +44,8 @@ defmodule EimWeb.VocabLiveTest do
 
     assert has_element?(view, "#vocab-shortcuts-dialog")
     assert has_element?(view, "#vocab-shortcuts-dialog", "Select next word")
+    assert has_element?(view, "#vocab-shortcuts-dialog", "Select first word")
+    assert has_element?(view, "#vocab-shortcuts-dialog", "Select last word")
     assert has_element?(view, "#vocab-shortcuts-dialog", "Focus selected word's note")
     assert has_element?(view, "#vocab-shortcuts-dialog", "Exit field or close this guide")
 

@@ -394,7 +394,7 @@
 
               if (isEditable || event.metaKey || event.ctrlKey || event.altKey) return
 
-              if (event.key === "j" || event.key === "k") {
+              if (["j", "k", "f", "l"].includes(event.key)) {
                 const rows = [...this.el.querySelectorAll("#vocab-entry-list [data-vocab-entry]")]
                 if (rows.length === 0) return
 
@@ -402,9 +402,13 @@
                 const focused = rows.indexOf(document.activeElement)
                 const selected = rows.findIndex(row => row.getAttribute("aria-current") === "true")
                 const current = focused >= 0 ? focused : selected
-                const next = event.key === "j"
-                  ? Math.min(current + 1, rows.length - 1)
-                  : Math.max(current < 0 ? 0 : current - 1, 0)
+                const next = event.key === "f"
+                  ? 0
+                  : event.key === "l"
+                    ? rows.length - 1
+                    : event.key === "j"
+                      ? Math.min(current + 1, rows.length - 1)
+                      : Math.max(current < 0 ? 0 : current - 1, 0)
 
                 rows[next].focus()
                 rows[next].click()
@@ -486,6 +490,18 @@
               <dt class="text-sm text-slate-700">Select previous word</dt>
               <dd>
                 <kbd class="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs">k</kbd>
+              </dd>
+            </div>
+            <div class="flex items-center justify-between gap-4 py-3">
+              <dt class="text-sm text-slate-700">Select first word</dt>
+              <dd>
+                <kbd class="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs">f</kbd>
+              </dd>
+            </div>
+            <div class="flex items-center justify-between gap-4 py-3">
+              <dt class="text-sm text-slate-700">Select last word</dt>
+              <dd>
+                <kbd class="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs">l</kbd>
               </dd>
             </div>
             <div class="flex items-center justify-between gap-4 py-3">
