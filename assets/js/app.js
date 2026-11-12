@@ -56,44 +56,74 @@ if (process.env.NODE_ENV === "development" && window.location.pathname === "/sig
   fillDevCredentials()
 }
 
-const devTools = document.getElementById("dev-tools")
-if (devTools) {
-  const toggle = document.getElementById("dev-tools-toggle")
-
-  const closeDevTools = () => {
-    devTools.classList.remove("is-open")
-    toggle.setAttribute("aria-expanded", "false")
-  }
-
-  toggle.addEventListener("click", () => {
-    const isOpen = devTools.classList.toggle("is-open")
-    toggle.setAttribute("aria-expanded", String(isOpen))
-  })
-
-  devTools.addEventListener("pointerleave", () => {
-    const activeElement = document.activeElement
-    const keyboardFocused = activeElement instanceof HTMLElement && activeElement.matches(":focus-visible")
-
-    if (!keyboardFocused) {
-      closeDevTools()
-      if (activeElement instanceof HTMLElement && devTools.contains(activeElement)) activeElement.blur()
-    }
-  })
-
-  document.addEventListener("pointerdown", event => {
-    if (!devTools.contains(event.target)) {
-      closeDevTools()
-      if (devTools.contains(document.activeElement)) document.activeElement.blur()
-    }
-  })
-
-  document.addEventListener("keydown", event => {
-    if (event.key === "Escape" && devTools.classList.contains("is-open")) {
-      closeDevTools()
-      toggle.focus()
-    }
-  })
+const closeNavTools = menu => {
+  menu.classList.remove("is-open")
+  menu.querySelector("button[aria-controls]").setAttribute("aria-expanded", "false")
 }
+
+document.addEventListener("click", event => {
+  const toggle = event.target.closest(".nav-tools > button[aria-controls]")
+  if (!toggle) return
+
+  const menu = toggle.parentElement
+  menu.classList.remove("is-dismissed")
+  const isOpen = menu.classList.toggle("is-open")
+  if (!isOpen) menu.classList.add("is-dismissed")
+  toggle.setAttribute("aria-expanded", String(isOpen))
+})
+
+document.addEventListener("pointerover", event => {
+  const menu = event.target.closest(".nav-tools")
+  if (menu && !menu.contains(event.relatedTarget)) {
+    menu.classList.remove("is-dismissed")
+    menu.querySelector("button[aria-controls]").setAttribute("aria-expanded", "true")
+  }
+})
+
+document.addEventListener("focusin", event => {
+  const menu = event.target.closest(".nav-tools")
+  if (menu && !menu.contains(event.relatedTarget)) {
+    menu.classList.remove("is-dismissed")
+    menu.querySelector("button[aria-controls]").setAttribute("aria-expanded", "true")
+  }
+})
+
+document.addEventListener("focusout", event => {
+  const menu = event.target.closest(".nav-tools")
+  if (menu && !menu.contains(event.relatedTarget) && !menu.matches(":hover")) closeNavTools(menu)
+})
+
+document.addEventListener("pointerout", event => {
+  const menu = event.target.closest(".nav-tools")
+  if (!menu || menu.contains(event.relatedTarget)) return
+
+  const activeElement = document.activeElement
+  const keyboardFocused = activeElement instanceof HTMLElement &&
+    menu.contains(activeElement) && activeElement.matches(":focus-visible")
+  if (!keyboardFocused) {
+    closeNavTools(menu)
+    if (activeElement instanceof HTMLElement && menu.contains(activeElement)) activeElement.blur()
+  }
+})
+
+document.addEventListener("pointerdown", event => {
+  document.querySelectorAll(".nav-tools").forEach(menu => {
+    if (!menu.contains(event.target)) {
+      closeNavTools(menu)
+      if (menu.contains(document.activeElement)) document.activeElement.blur()
+    }
+  })
+})
+
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return
+  const menu = event.target.closest(".nav-tools")
+  if (menu) {
+    closeNavTools(menu)
+    menu.classList.add("is-dismissed")
+    menu.querySelector("button[aria-controls]").focus()
+  }
+})
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {

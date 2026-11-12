@@ -97,7 +97,10 @@ if config_env() == :prod do
   config :eim,
     token_signing_secret:
       System.get_env("TOKEN_SIGNING_SECRET") ||
-        raise("Missing environment variable `TOKEN_SIGNING_SECRET`!")
+        raise("""
+        Missing environment variable `TOKEN_SIGNING_SECRET`!
+        Generate one with: mix eim.gen.signing.secret
+        """)
 
   # ## SSL Support
   #

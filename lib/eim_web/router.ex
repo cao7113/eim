@@ -2,6 +2,7 @@ defmodule EimWeb.Router do
   use EimWeb, :router
 
   import Oban.Web.Router
+  import AshAdmin.Router
   use AshAuthentication.Phoenix.Router
 
   import AshAuthentication.Plug.Helpers
@@ -30,6 +31,10 @@ defmodule EimWeb.Router do
     plug :require_vocab_actor
   end
 
+  pipeline :admin do
+    plug EimWeb.Plugs.RequireAdmin
+  end
+
   defp require_vocab_actor(%{request_path: "/api/vocab/" <> _} = conn, _opts) do
     if Ash.PlugHelpers.get_actor(conn) do
       conn
@@ -56,6 +61,15 @@ defmodule EimWeb.Router do
         conn.request_path <> if(conn.query_string == "", do: "", else: "?" <> conn.query_string)
 
       Plug.Conn.put_session(conn, :return_to, return_to)
+    end
+  end
+
+  scope "/", EimWeb do
+    pipe_through :browser
+
+    ash_authentication_live_session :admin_user_routes,
+      on_mount: [{EimWeb.LiveUserAuth, :live_admin_required}] do
+      live "/manage/users", AdminUsersLive, :index
     end
   end
 
@@ -154,21 +168,21 @@ defmodule EimWeb.Router do
       live_dashboard "/dashboard", metrics: EimWeb.Telemetry
       forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
-
-    scope "/" do
-      pipe_through :browser
-
-      oban_dashboard("/oban")
-    end
   end
 
-  if Application.compile_env(:eim, :dev_routes) do
-    import AshAdmin.Router
+  scope "/" do
+    pipe_through [:browser, :admin]
 
-    scope "/admin" do
-      pipe_through :browser
+    oban_dashboard("/oban",
+      resolver: EimWeb.ObanResolver,
+      on_mount: [{EimWeb.AdminDashboardAuth, :oban}]
+    )
 
-      ash_admin "/"
-    end
+    ash_admin "/admin",
+      on_mount: [
+        AshAuthentication.Phoenix.LiveSession,
+        {EimWeb.AdminDashboardAuth, :ash_admin}
+      ],
+      session: [{AshAuthentication.Phoenix.LiveSession, :generate_session, [nil, []]}]
   end
 end

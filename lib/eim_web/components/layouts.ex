@@ -37,7 +37,13 @@ defmodule EimWeb.Layouts do
   slot :inner_block, required: true
 
   def app(assigns) do
-    assigns = assign(assigns, :dev_routes_enabled, @dev_routes)
+    assigns =
+      assigns
+      |> assign(:dev_routes_enabled, @dev_routes)
+      |> assign(
+        :admin?,
+        assigns.current_user && Eim.Accounts.Admins.admin?(assigns.current_user.id)
+      )
 
     ~H"""
     <header class="border-b border-slate-200/80 bg-white/90">
@@ -53,7 +59,7 @@ defmodule EimWeb.Layouts do
         </a>
         <div class="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-x-3 gap-y-2 sm:gap-6">
           <%= if @dev_routes_enabled do %>
-            <div id="dev-tools" class="dev-tools group relative">
+            <div id="dev-tools" class="nav-tools group relative">
               <button
                 id="dev-tools-toggle"
                 type="button"
@@ -69,24 +75,24 @@ defmodule EimWeb.Layouts do
               </button>
               <div
                 id="dev-tools-menu"
-                class="dev-tools-menu absolute right-0 top-full z-50 hidden w-48 pt-2"
+                class="nav-tools-menu absolute right-0 top-full z-50 hidden w-48 pt-2"
               >
                 <div class="rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg shadow-slate-950/10">
                   <a
-                    href="/admin"
+                    href="/dev/dashboard"
                     target="_blank"
                     rel="noopener noreferrer"
                     class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
                   >
-                    Ash Admin
+                    Live Dashboard
                   </a>
                   <a
-                    href="/oban"
+                    href="/dev/mailbox"
                     target="_blank"
                     rel="noopener noreferrer"
                     class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
                   >
-                    Oban Dashboard
+                    Mailbox
                   </a>
                   <a
                     href="/api/swaggerui"
@@ -100,6 +106,46 @@ defmodule EimWeb.Layouts do
               </div>
             </div>
           <% end %>
+          <div :if={@admin?} id="admin-tools" class="nav-tools group relative">
+            <button
+              id="admin-tools-toggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="admin-tools-menu"
+              class="flex cursor-pointer items-center gap-1 text-sm font-semibold text-slate-600 transition hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lime-700"
+            >
+              Admin
+              <.icon
+                name="hero-chevron-down"
+                class="size-4 transition group-hover:rotate-180 group-focus-within:rotate-180"
+              />
+            </button>
+            <div
+              id="admin-tools-menu"
+              class="nav-tools-menu absolute right-0 top-full z-50 hidden w-48 pt-2"
+            >
+              <div class="rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg shadow-slate-950/10">
+                <a
+                  id="admin-dashboard-link"
+                  href="/admin"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+                >
+                  Admin
+                </a>
+                <a
+                  id="oban-dashboard-link"
+                  href="/oban"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+                >
+                  Oban
+                </a>
+              </div>
+            </div>
+          </div>
           <a
             :if={@current_user}
             id="vocabulary-link"
@@ -116,12 +162,17 @@ defmodule EimWeb.Layouts do
             Dictionary
           </a>
           <%= if @current_user do %>
-            <span
-              id="current-user-email"
-              class="max-w-[9rem] truncate text-sm font-medium text-slate-600 sm:max-w-none"
-              title={@current_user.email}
-            >
-              {@current_user.email}
+            <span class="flex min-w-0 items-center gap-1 text-sm font-medium text-slate-600">
+              <span
+                id="current-user-email"
+                class="max-w-[9rem] truncate sm:max-w-none"
+                title={@current_user.email}
+              >
+                {@current_user.email}
+              </span>
+              <span :if={@admin?} id="current-user-admin" class="shrink-0 text-slate-500">
+                (admin)
+              </span>
             </span>
             <.link
               id="sign-out-link"

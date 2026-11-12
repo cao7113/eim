@@ -1,515 +1,101 @@
-# eim 技术方案 01：ECDICT 词典层（含 LLM 预留）
+# ECDICT 词典
 
-*草案 · 2026-11-10 · 对应阶段 1；阶段 2（LLM）只做接口预留*
+本文合并词典查词、浏览和详情的当前实现，并提出统一数据导入及更新方案。**“当前”是已有代码的行为；“待实现”是设计，不是现在就能执行的生产命令。** 多词库和 AI 的长期方向见[架构参考](./词典浏览与多词库架构参考.md)。
 
-## 0. 目标与范围
+## 当前能力
 
-**目标**：插件划词后，后端返回可靠的词典结果：中文释义、音标、词性、考试标签、词频，并把 `gave`、`running` 这类变形还原到原型。
+### 数据与查词
 
-**本阶段做**：数据获取与校验、Ash 资源与迁移、幂等导入任务、`lookup` 解析链路、API 暴露、测试。
+- ECDICT 是当前唯一接入的数据源。`lexemes` 保存来源词条及原始释义、音标、标签、词频和版本；`lexeme_forms` 保存变形反查；`dictionary_imports` 记录已完成导入的版本、文件 SHA-256、处理行数及备注。当前 `word` 全局唯一，不是多来源模型。
+- 查词依次尝试大小写不敏感的词条精确匹配、变形反查和去除非字母数字后的模糊匹配；有原型词条时优先返回原型。句子直接返回未命中。释义解析支持真实换行和字面量 `\n`。
+- `GET /api/dict/lookup?text=...` 使用 `Accept: application/vnd.api+json`。成功和未命中均返回约定的结果形状；无效输入返回 JSON:API 错误。接口规范见 `/api/open_api`，Swagger UI 见 `/api/swaggerui`。
+- 基础词典查询不依赖 AI。`Entry` 保留来源及 `in_context` 等字段，但这不代表 AI、缓存或多来源编排已经实现。
 
-**本阶段不做**：LLM 调用、缓存与调用日志表、登录与限流、Wiktionary / Tatoeba 等其他数据源、插件 UI。
+### 浏览与详情
 
-**前提**：Phoenix 1.8+、Ash 3.x、AshPostgres、AshJsonApi、AshAdmin 已就绪，应用名 `eim`。文中 Ash 代码是骨架，DSL 细节以项目锁定版本的文档为准。
+- `/dicts/ecdict` 公开浏览，`/dicts/ecdict/:id` 用来源词条 UUID 展示详情，不按规范词形合并。空搜索浏览全部；搜索按大小写不敏感的词条或词形**前缀**匹配，`%`、`_` 等按字面处理，不提供任意子串、拼写纠错或 AI 搜索。
+- 形式筛选依次区分含空白的词组、首尾均为连字符的其他条目、以连字符开头的后缀、以连字符结尾的前缀、内部连字符复合词、纯字母单词和其他条目；历史 `category=affix` 链接仍包含前缀与后缀。Dotted abbreviations 是可与其他类别重叠的拼写筛选：点两侧都是字母或数字且至少一侧为字母，例如 `A.B.G.`、`A.1`，但不包括 `6.2` 或 `...`。这些都是启发式规则，不代表权威分类。
+- 按 `(word_lc, word)` 排序、双向游标分页，每页 10 条；查询、分类、游标写入 URL，搜索或切换分类重置游标，详情返回链接保留列表状态。详情可分享；桌面端并列列表和详情，窄屏使用可关闭面板。
+- 支持 `/` 聚焦搜索、`j/k` 或上下键选择、左右键翻页、`f/l` 选择首末项、`?` 显示快捷键、`Esc` 退出输入或关闭面板；输入时暂停导航快捷键。
+- 详情展示可用的原始中英文释义、音标、词性、标签、词频、相关词形和来源版本，不虚构例句、音频或权威难度。最近导入行数是**该次处理行数**，不是当前词条总数或字段覆盖率；没有导入记录时明确提示。
+- 登录用户可保存到个人生词本；匿名用户登录返回后需再次点击保存。按用户及规范词目去重，不覆盖已保存的笔记和快照；收藏状态读取失败会提示，而不是假装未收藏。无效输入、找不到的词条和数据库不可用应与空结果区分。
+- 浏览使用词条及词形前缀索引、分类表达式索引和游标查询。现有导入会直接改变查询数据，翻页游标不代表版本快照。
 
-## 1. 总体设计
-
-```text
-text ─► Normalize ─► Lookup ─► Entry（统一结果）
-         kind/hash     ① 精确 word_lc
-                       ② 变形 lexeme_forms → 原型
-                       ③ 模糊 sw
-                       └ 未命中 → {:miss, normalized}（阶段 2 交给 LLM）
-```
-
-三条原则：
-
-1. **数据与逻辑分层**：`Lexeme*` 只存数据，`Lookup` 是纯逻辑，对外只暴露统一的 `Entry`。
-2. **导入可重复**：同一份 CSV 导入多次结果相同，并记录来源版本。
-3. **先定死对外契约**：`Entry` 结构固定，以后 LLM、Wiktionary 都往同一个结构里填。
-
-## 2. 步骤 1：获取并校验数据
+### 开发环境导入：当前可用
 
 ```bash
-# 本地已有仓库；首次准备时可 clone 到该路径
 git clone --depth 1 https://github.com/skywind3000/ECDICT.git _local/ecdict
-head -n 3 _local/ecdict/ecdict.csv
-shasum -a 256 _local/ecdict/ecdict.csv
 git -C _local/ecdict rev-parse HEAD
-```
-
-- 预期表头：`word,phonetic,definition,translation,pos,collins,oxford,tag,bnc,frq,exchange,detail,audio`，以实际文件为准。
-- UTF-8 编码，释义字段含引号内换行。**不要用 Excel 打开或保存**。
-- 数据文件保留在 `_local/ecdict/`，不提交进项目仓库。
-- **需实测确认**：多行释义是真实换行还是字面 `\n`；`bnc`、`frq`、`oxford` 的空值写法；是否有仅大小写不同的重复词条。
-
-**验收**：表头核对无误，sha256 与 commit 已记录。
-
-**本地校验结果（2026-11-10）**：已检查 `_local/ecdict/ecdict.csv`，表头 13 列与预期一致，UTF-8、770,611 行，大小写不敏感的重复词条为 0。仓库 commit 为 `39cfb9672c0906b63569e0453c2e6abfb9ab182a`，文件 SHA-256 为 `d1ecbdf9ee2b920afb6f430ca6b6bb9f559588cf0dff86e04bd255f9390843cc`。`collins`、`oxford` 以空值为主，`bnc`、`frq` 的 `0` 占多数；导入将空值和非正数统一存为 NULL。数据保留在 `_local/`，不会提交进项目。
-
-## 3. 步骤 2：数据模型
-
-`mix.exs` 增加 `{:nimble_csv, "~> 1.2"}`，运行 `mix deps.get`。
-
-**lexemes（词条，ECDICT 一行一条）**
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| id | uuid | 主键 |
-| word | text | 原词，**唯一** |
-| word\_lc | text | 小写，精确查询，btree 索引 |
-| sw | text | 去掉非字母数字并小写，模糊匹配，索引（不唯一） |
-| phonetic / translation / definition / pos | text | 音标、中文释义原文、英文释义原文、词性占比原文 |
-| tags | text\[\] | `tag` 按空格拆分，如 cet4、ielts |
-| collins / bnc\_rank / frq\_rank | integer | 星级与两套词频排名，空或 0 存 NULL（先抽样核对 0 的含义） |
-| oxford | boolean | 是否牛津核心词 |
-| exchange | text | 原始变形字符串，保留以便重新解析 |
-| lemma | text | 原型，取 exchange 中的 `0:` 项，非变形词为 NULL |
-| source / source\_version | text | 默认 `ecdict` / 导入时的 commit |
-
-**lexeme\_forms（变形反查表）**：`lexeme_id`（外键，随词条级联删除）、`form`、`form_lc`、`form_type`（past、past\_participle、present\_participle、third\_person、comparative、superlative、plural）。唯一约束 `(lexeme_id, form_lc, form_type)`，`form_lc` 建索引。
-
-**dictionary\_imports（导入记录）**：`source`、`source_version`、`file_sha256`、`row_count`、`notes`、导入时间。
-
-设计取舍：
-
-- 不用 citext，显式存 `word_lc`，少一个扩展，查询行为明确。
-- 变形单独成表，`gave` 一次索引即可还原，不必运行时解析字符串。
-- 保留 `translation`、`exchange` 原文，解析规则改了不用重新导入。
-
-## 4. 步骤 3：实现资源并迁移
-
-```elixir
-# lib/eim/dictionary.ex
-defmodule Eim.Dict do
-  use Ash.Domain, otp_app: :eim
-
-  resources do
-    resource Eim.Dict.Lexeme
-    resource Eim.Dict.LexemeForm
-    resource Eim.Dict.Import
-  end
-end
-```
-
-```elixir
-# lib/eim/dictionary/lexeme.ex
-defmodule Eim.Dict.Lexeme do
-  use Ash.Resource, otp_app: :eim, domain: Eim.Dict, data_layer: AshPostgres.DataLayer
-
-  postgres do
-    table "lexemes"
-    repo Eim.Repo
-
-    custom_indexes do
-      index [:word_lc]
-      index [:sw]
-    end
-  end
-
-  attributes do
-    uuid_primary_key :id
-    attribute :word, :string, allow_nil?: false, public?: true
-    attribute :word_lc, :string, allow_nil?: false
-    attribute :sw, :string, allow_nil?: false
-    attribute :phonetic, :string, public?: true
-    attribute :translation, :string, public?: true
-    attribute :definition, :string, public?: true
-    attribute :pos, :string, public?: true
-    attribute :tags, {:array, :string}, default: [], public?: true
-    attribute :collins, :integer, public?: true
-    attribute :oxford, :boolean, default: false, public?: true
-    attribute :bnc_rank, :integer, public?: true
-    attribute :frq_rank, :integer, public?: true
-    attribute :exchange, :string
-    attribute :lemma, :string, public?: true
-    attribute :source, :string, default: "ecdict", allow_nil?: false
-    attribute :source_version, :string
-    timestamps()
-  end
-
-  identities do
-    identity :unique_word, [:word]
-  end
-
-  relationships do
-    has_many :forms, Eim.Dict.LexemeForm
-  end
-
-  actions do
-    defaults [:read]
-    # lookup 动作见步骤 6
-  end
-end
-```
-
-`LexemeForm`、`Import` 同理：表名 `lexeme_forms`、`dictionary_imports`。`LexemeForm` 用 `belongs_to :lexeme, Eim.Dict.Lexeme, allow_nil?: false`，在 `postgres do references do reference :lexeme, on_delete: :delete end end` 中声明级联删除，并按第 3 节声明 identity 与 `form_lc` 索引；`Import` 提供 `create :record`，accept `source, source_version, file_sha256, row_count, notes`。
-
-```bash
-mix ash.codegen create_dictionary
+shasum -a 256 _local/ecdict/ecdict.csv
 mix ash.migrate
+mix eim.ecdict.import _local/ecdict/ecdict.csv --version <上游commit>
 ```
 
-**验收**：`\d lexemes` 能看到上述字段和索引；`lexeme_forms` 有外键与唯一索引。
-
-## 5. 步骤 4：导入任务
-
-要点：
-
-- NimbleCSV 流式读取，每 1000 行一批，用 `Repo.insert_all` 直接写表。批量导入属于受信任的数据加载，绕过 Ash 动作以换取速度。
-- 按 `word` 冲突时更新，所以**可重复执行**；同批内先按 `word` 去重，否则 PostgreSQL 会报“同一行被影响两次”。
-- 每批写入词条后，用返回的 id 写 `lexeme_forms`，冲突忽略。
-- 先校验表头，不符就中止。时间戳列用数据库默认值，不在导入里写。
-
-```elixir
-# lib/eim/dictionary/importer.ex
-defmodule Eim.Dict.Importer do
-  alias Eim.Repo
-  alias Eim.Dict.Normalize
-  alias NimbleCSV.RFC4180, as: CSV
-
-  @header ~w(word phonetic definition translation pos collins oxford tag bnc frq exchange)
-  @form_types %{"p" => "past", "d" => "past_participle", "i" => "present_participle",
-                "3" => "third_person", "r" => "comparative", "t" => "superlative", "s" => "plural"}
-
-  def run(path, version) do
-    [header] = path |> File.stream!() |> CSV.parse_stream(skip_headers: false) |> Enum.take(1)
-    if Enum.take(header, 11) != @header, do: raise("unexpected header: #{inspect(header)}")
-
-    path
-    |> File.stream!()
-    |> CSV.parse_stream(skip_headers: true)
-    |> Stream.map(&to_row(&1, version))
-    |> Stream.reject(&is_nil/1)
-    |> Stream.chunk_every(1000)
-    |> Enum.reduce(0, fn chunk, n ->
-      insert_chunk(chunk)
-      n + length(chunk)
-    end)
-  end
-
-  defp insert_chunk(pairs) do
-    # 同批内重复的词条保留最后一条
-    pairs = pairs |> Enum.reverse() |> Enum.uniq_by(fn {row, _} -> row.word end)
-    rows = Enum.map(pairs, fn {row, _} -> row end)
-    replace = Map.keys(hd(rows)) -- [:word]
-
-    {_, returned} =
-      Repo.insert_all("lexemes", rows,
-        on_conflict: {:replace, replace},
-        conflict_target: [:word],
-        returning: [:id, :word]
-      )
-
-    ids = Map.new(returned, &{&1.word, &1.id})
-
-    forms =
-      for {row, fs} <- pairs, {type, form} <- fs, id = ids[row.word] do
-        %{lexeme_id: id, form: form, form_lc: String.downcase(form), form_type: type}
-      end
-
-    Repo.insert_all("lexeme_forms", forms, on_conflict: :nothing)
-  end
-
-  defp to_row([word, phonetic, definition, translation, pos, collins, oxford, tag, bnc, frq, exchange | _], version) do
-    word = String.trim(word)
-    {lemma, forms} = parse_exchange(exchange)
-
-    if word != "" do
-      row = %{
-        word: word, word_lc: String.downcase(word), sw: Normalize.strip_word(word),
-        phonetic: blank(phonetic), translation: blank(translation), definition: blank(definition),
-        pos: blank(pos), tags: String.split(tag, " ", trim: true),
-        collins: to_int(collins), oxford: oxford == "1",
-        bnc_rank: to_int(bnc), frq_rank: to_int(frq),
-        exchange: blank(exchange), lemma: lemma,
-        source: "ecdict", source_version: version
-      }
-
-      {row, forms}
-    end
-  end
-
-  defp to_row(_, _), do: nil
-
-  @doc "p:gave/d:given/0:give -> {lemma, [{form_type, form}]}"
-  def parse_exchange(str) when str in [nil, ""], do: {nil, []}
-
-  def parse_exchange(str) do
-    items =
-      for item <- String.split(str, "/", trim: true),
-          [k, v] <- [String.split(item, ":", parts: 2)],
-          v != "",
-          do: {k, v}
-
-    {Enum.find_value(items, fn {k, v} -> k == "0" && v end),
-     for({k, v} <- items, type = @form_types[k], do: {type, v})}
-  end
-
-  defp blank(s) do
-    case String.trim(s) do
-      "" -> nil
-      v -> v
-    end
-  end
-
-  defp to_int(s) do
-    case Integer.parse(String.trim(s)) do
-      {n, _} when n > 0 -> n
-      _ -> nil
-    end
-  end
-end
-```
-
-```elixir
-# lib/mix/tasks/eim.import_ecdict.ex
-defmodule Mix.Tasks.Eim.ImportEcdict do
-  use Mix.Task
-  @shortdoc "导入 ECDICT CSV：mix eim.import_ecdict PATH --version COMMIT"
-
-  def run(args) do
-    {opts, [path], _} = OptionParser.parse(args, strict: [version: :string])
-    Mix.Task.run("app.start")
-    sha = :crypto.hash(:sha256, File.read!(path)) |> Base.encode16(case: :lower)
-    count = Eim.Dict.Importer.run(path, opts[:version] || "unknown")
-
-    Eim.Dict.Import
-    |> Ash.Changeset.for_create(:record, %{source: "ecdict", source_version: opts[:version], file_sha256: sha, row_count: count})
-    |> Ash.create!()
-
-    Mix.shell().info("imported #{count} rows")
-  end
-end
-```
-
-**验收**：
-
-```sql
-SELECT count(*) FROM lexemes;
-SELECT l.word FROM lexeme_forms f JOIN lexemes l ON l.id = f.lexeme_id WHERE f.form_lc = 'gave';  -- give
-```
-
-再执行一次导入，`lexemes` 行数不变；`dictionary_imports` 有对应记录。
-
-## 6. 步骤 5：解析链路
-
-**统一结果 `Entry`**（对外契约，阶段 2 也沿用）：
-
-```elixir
-defmodule Eim.Dict.Entry do
-  @moduledoc "词典查询的统一结果。阶段 2 的 LLM、其他词典都往这个结构里填。"
-  defstruct [:text, :kind, :match, :lemma, :phonetic, :collins, :frq_rank,
-             senses: [], tags: [], in_context: nil, sources: []]
-end
-```
-
-**输入规范化**（也是阶段 2 缓存 key 的基础）：
-
-```elixir
-defmodule Eim.Dict.Normalize do
-  @max_len 500
-
-  def run(text) when is_binary(text) do
-    t0 = text |> String.replace(~r/\s+/u, " ") |> String.trim()
-    kind = kind(t0)
-    t = if kind == :sentence, do: t0, else: trim_edge(t0)
-
-    cond do
-      t == "" -> {:error, :empty}
-      String.length(t) > @max_len -> {:error, :too_long}
-      true -> {:ok, %{text: t, lc: String.downcase(t), kind: kind, hash: hash(t)}}
-    end
-  end
-
-  def strip_word(s), do: s |> String.replace(~r/[^\p{L}\p{N}]/u, "") |> String.downcase()
-
-  # 只去掉首尾的常见标点和括号，保留 C++、node.js 这类技术词
-  defp trim_edge(t), do: String.replace(t, ~r/^[\s"'(\[]+|[\s.,;:!?"')\]]+$/u, "")
-
-  defp kind(t) do
-    case t |> String.split(" ") |> length() do
-      1 -> :word
-      n when n <= 4 -> :phrase
-      _ -> :sentence
-    end
-  end
-
-  defp hash(t), do: :crypto.hash(:sha256, String.downcase(t)) |> Base.encode16(case: :lower)
-end
-```
-
-**查询**：精确 → 变形 → 模糊，句子直接 miss。
-
-```elixir
-defmodule Eim.Dict.Lookup do
-  require Ash.Query
-  alias Eim.Dict.{Lexeme, LexemeForm, Entry, Normalize, Senses}
-
-  def run(text) do
-    with {:ok, n} <- Normalize.run(text) do
-      if n.kind == :sentence, do: {:miss, n}, else: resolve(n)
-    end
-  end
-
-  defp resolve(n) do
-    cond do
-      lex = exact(n.lc) -> {:ok, build(n, lex, :exact)}
-      lex = via_form(n.lc) -> {:ok, build(n, lex, :form)}
-      lex = fuzzy(n.lc) -> {:ok, build(n, lex, :fuzzy)}
-      true -> {:miss, n}
-    end
-  end
-
-  defp exact(lc) do
-    rows = Lexeme |> Ash.Query.filter(word_lc == ^lc) |> Ash.Query.limit(5) |> Ash.read!()
-    Enum.find(rows, &(&1.word == lc)) || best(rows)
-  end
-
-  defp via_form(lc) do
-    LexemeForm
-    |> Ash.Query.filter(form_lc == ^lc)
-    |> Ash.Query.load(:lexeme)
-    |> Ash.read!()
-    |> Enum.map(& &1.lexeme)
-    |> best()
-  end
-
-  defp fuzzy(lc) do
-    sw = Normalize.strip_word(lc)
-    Lexeme |> Ash.Query.filter(sw == ^sw) |> Ash.Query.limit(10) |> Ash.read!() |> best()
-  end
-
-  # 同形多条时取词频排名最靠前的
-  defp best([]), do: nil
-  defp best(rows), do: Enum.min_by(rows, &rank/1)
-  defp rank(%{frq_rank: r}) when is_integer(r) and r > 0, do: r
-  defp rank(_), do: 1_000_000_000
-
-  # 命中的是变形词时，改用原型词条作为主结果
-  defp build(n, lex, match) do
-    primary = (lex.lemma && exact(String.downcase(lex.lemma))) || lex
-
-    %Entry{
-      text: n.text, kind: n.kind, match: match, lemma: primary.word,
-      phonetic: primary.phonetic, collins: primary.collins, frq_rank: primary.frq_rank,
-      senses: Senses.parse(primary.translation), tags: primary.tags,
-      sources: [%{name: primary.source, version: primary.source_version}]
-    }
-  end
-end
-```
-
-**义项解析**（纯函数；展示要用，阶段 2 也作为 LLM 的候选义项）：
-
-```elixir
-defmodule Eim.Dict.Senses do
-  def parse(nil), do: []
-
-  def parse(text) do
-    text
-    |> String.split(["\n", "\\n"], trim: true)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.map(&parse_line/1)
-  end
-
-  # 形如 "[计] 缓存"、"n. 苹果"；解析不出的复合写法整行放进 zh，保证不丢内容
-  defp parse_line(line) do
-    m = Regex.named_captures(~r/^(?:\[(?<domain>[^\]]+)\]\s*)?(?:(?<pos>[a-z]+)\.\s*)?(?<zh>.+)$/u, line)
-    %{pos: nilify(m["pos"]), domain: nilify(m["domain"]), zh: m["zh"]}
-  end
-
-  defp nilify(""), do: nil
-  defp nilify(v), do: v
-end
-```
-
-**验收**：`gave`→give（`match: :form`）、`long-time`→`longtime`（`:fuzzy`）、`idempotent,` 去标点后可查、句子返回 miss。
-
-## 7. 步骤 6：对外 API
-
-在 `Lexeme` 的 `actions` 里加一个 generic action，并在领域里声明 code interface：
-
-```elixir
-action :lookup, :map do
-  argument :text, :string, allow_nil?: false
-
-  run fn input, _ctx ->
-    case Eim.Dict.Lookup.run(input.arguments.text) do
-      {:ok, entry} -> {:ok, Map.from_struct(entry)}
-      {:miss, n} -> {:ok, %{match: :miss, text: n.text, kind: n.kind}}
-      {:error, reason} -> {:error, "invalid text: #{inspect(reason)}"}
-    end
-  end
-end
-```
-
-```elixir
-# eim/dictionary.ex 的 resources 中
-resource Eim.Dict.Lexeme do
-  define :lookup, args: [:text]
-end
-```
-
-- **路由**：用 AshJsonApi generic action 暴露 `GET /api/dict/lookup?text=`，并由统一 OpenAPI/Swagger UI 发布接口契约。
-- **AshAdmin**：给 `Lexeme` 加 `AshAdmin.Resource` 扩展，在 `/admin` 抽查数据。
-- **认证**：本阶段可仅在开发环境开放；**接 LLM 之前必须先有认证与限流**。
-- **插件**：把 background 里的 `mockTranslate` 换成对该接口的 `fetch`，浮窗展示 `lemma / phonetic / senses / tags`。
-- 插件端到端划词查词 MVP 的目标、消息链路、错误状态与验收标准见 [插件划词查词 MVP 技术方案](./插件划词查词MVP技术方案.md)。
-
-**验收**：`curl` 查询 `gave` 返回 `lemma: give`；浮窗能显示真实释义。
-
-当前接口通过 AshJsonApi 实现为 `GET /api/dict/lookup?text=...`。请求需带 `Accept: application/vnd.api+json`，成功响应为包含 `text`、`kind`、`match`、`lemma`、`phonetic`、`senses`、`tags` 和 `sources` 的 JSON 对象；未命中返回相同结构且 `match: "miss"`。无效输入使用 JSON:API error 格式。OpenAPI 规范位于 `/api/open_api`，Swagger UI 位于 `/api/swaggerui`。迁移与数据导入命令：
-
-```bash
-mix ash.migrate
-mix eim.import_ecdict
-curl -H 'Accept: application/vnd.api+json' 'http://localhost:4000/api/dict/lookup?text=gave'
-```
-
-导入任务默认读取 `_local/ecdict/ecdict.csv`，也可传入其他 CSV 路径和 `--version`。导入按 1,000 行分批事务处理，可安全重复执行；每次执行会记录数据版本、SHA-256、导入行数和跳过行数。
-
-## 8. 步骤 7：测试
-
-- **纯函数单元测试**：`parse_exchange`、`Senses.parse`（含字面 `\n` 与真实换行两种输入）、`Normalize.run`（空白、首尾标点、`C++` 不被破坏、超长、kind 判定）、`strip_word`。
-- **导入集成测试**：用 `test/support/fixtures/ecdict_sample.csv` 覆盖字面量与真实换行释义、变形词、同批重复词条、缺列行。断言行数、**重复导入幂等**、`gave` 经原型字段命中 give。
-- **索引检查**：对三条查询跑 `EXPLAIN`，确认走 `word_lc`、`form_lc`、`sw` 索引；对一批随机词压测，记录本机耗时，不写死阈值。
-- **黄金样本**：整理 100 个真实技术词（如 idempotent、debounce、mutex），跑 `lookup`，人工标注“命中 / 释义可用 / 缺失”。它既是本阶段的覆盖率报告，也是阶段 2 对比各 LLM 供应商的评测集种子。
-
-## 9. LLM 预留清单
-
-| 预留点 | 本阶段做什么 | 阶段 2 怎么用 |
-| --- | --- | --- |
-| `Entry` 契约，含 `in_context`、`sources` | 定义 struct，字段留空 | LLM 填 `in_context`，来源标记为 AI，与词典数据区分 |
-| 未命中返回 `{:miss, normalized}` | 带上 `kind`、`hash` | 翻译动作据此查缓存、调用 LLM，缓存 key 含 `hash` |
-| `Senses.parse` 结构化义项 | 纯函数 + 测试 | 作为候选义项放进提示词，让模型选择并解释，而不是自由翻译 |
-| `source` / `source_version` / `dictionary_imports` | 如实记录 | 缓存 key 带词典版本，词典更新后可批量失效 |
-| `Normalize` 的长度上限与 `kind` | 实现 | 决定哪些走词典、哪些才调用 LLM，是成本控制入口 |
-| 黄金样本 | 整理 100 词 | 固定评测集，对比供应商与提示词版本 |
-| 域边界 | 只建 `Eim.Dict` | 新增 `Eim.Translation`（编排：lookup → 缓存 → LLM）与 `Eim.AI`（供应商抽象，封装 ReqLLM）；`TranslationCache`、`LlmCall` 资源也在阶段 2 建 |
-
-**依赖方向**：`Translation → Dictionary`、`Translation → AI`，反向禁止。`Dictionary` 不知道 LLM 的存在，没有 LLM 时也能独立工作。
-
-**刻意不预建**：缓存表、调用日志表、供应商配置。没有真实调用数据前先建表，大概率要返工。
-
-## 10. 里程碑与验收清单
-
-- [x] M1 数据：`ecdict.csv` 已获取，表头核对，sha256 与 commit 已记录
-- [x] M2 模型：三个资源与迁移完成，`mix ash.migrate` 成功
-- [x] M3 导入：`mix eim.import_ecdict` 成功，`dictionary_imports` 有记录
-- [x] M4 解析：`Normalize`、`Senses`、`Lookup` 完成，单元与集成测试通过
-- [x] M5 API：AshJsonApi `GET /api/dict/lookup` 可用并纳入 OpenAPI
-- [ ] M5 插件联调：插件已用真实数据替换 mock
-- [ ] M6 抽查：100 词黄金样本跑完，覆盖率记录在案
-
-每个里程碑独立可验收，建议各自提交一次 Git。
-
-## 11. 风险与待决事项
-
-- **授权**：MIT 是仓库声明，上游来源授权在商业化前需再确认。
-- **数据偏旧**：更新主要停留在 2017 年前后，技术新词覆盖以 M6 抽查结果为准，据此决定是否优先接入 Wiktionary。
-- **数据细节已实测**：释义使用字面量 `\n`；`bnc`、`frq` 中 `0` 是常见空值写法；数据中没有大小写不敏感的重复词条。
-- **API 契约**：当前由普通控制器提供稳定 JSON 响应，尚未纳入 AshJsonApi / OpenAPI；契约稳定后再评估强类型 API schema。
-- **版本差异**：Ash、AshPostgres、AshJsonApi 的 DSL 以锁定版本文档为准，本文代码需要编译验证。
-- **待决**：`detail`、`audio` 字段基本为空，本阶段忽略。
+也可省略路径，默认使用 `_local/ecdict/ecdict.csv`；省略 `--version` 时任务会尝试从文件目录向上查找 Git 仓库，Git 返回失败时记录 `unknown`，未安装 Git 则可能直接报错。这可能误取 Eim 仓库的 commit，且 Git HEAD 不证明 CSV 未被修改，**建议显式传版本并独立核对哈希**。
+
+当前导入先检查表头前 11 列，再流式读取，每 1,000 行一批，在批内按原词去重、按 `word` upsert 并替换该批词条的词形。空词条或列数不足的行被跳过；完成后才写入导入记录。重复导入同一文件可重试，但：
+
+- 每批单独提交，中途失败会留下部分更新，也可能没有对应导入记录；运行中读者可能看到混合版本。
+- 不会删除新文件中消失的旧词条；记录中的行数是本次处理的去重后批次行数之和，并非文件唯一词条数。
+- 不验证文件是否符合预期 SHA-256，也没有并发导入锁、失败状态或 release 导入入口。现有功能**不能保证生产持续更新的完整快照**。
+
+2026-11-10 本地核验样本：上游 commit `39cfb9672c0906b63569e0453c2e6abfb9ab182a`，CSV SHA-256 `d1ecbdf9ee2b920afb6f430ca6b6bb9f559588cf0dff86e04bd255f9390843cc`，770,611 行。此记录用于追溯，不是生产文件自动校验；发布前需重新核验文件、许可和来源。数据不提交 Eim 仓库。
+
+## 统一导入与持续更新设计（待实现）
+
+### 目标与边界
+
+同一套导入服务支持开发 Mix task、生产 release 单次任务、首次初始化、日后的完整数据集更新与回滚。文件获取与数据库导入分离：运行环境不要求 Git，不在应用启动时自动导入，也不在每个应用实例重复执行任务。调度可由部署平台或人工触发，第一版不要求自动追踪上游或建设通用多词库平台。
+
+固定的**数据制品清单**记录 `source`、上游不可变版本（ECDICT commit）、可信 SHA-256、文件格式及可选获取地址。commit 标识上游来源，哈希标识实际文件；两者都不能仅靠上传者自报。清单随代码审查和版本管理，制品可来自固定版本地址、内部对象存储或运维上传；三者都必须核对同一可信哈希。核验原始来源、获取授权及可再分发性仍是部署者责任。
+
+未来入口共用同一个服务，不复制解析、校验、写入和状态逻辑：
+
+- **开发**：Mix task 接收本地文件和清单，方便重复测试，也可明确选择测试用清单；不得自动猜测生产来源版本。
+- **生产**：release 任务接收清单和预先上传或下载的本地文件；release 中不依赖 Mix 或 Git。数据库迁移先于导入，任务使用生产配置和数据库凭据，以非零退出码及日志暴露失败。
+- **获取**：计划支持通过 Req 直接下载清单中固定 commit 的 URL，例如上文末尾的 ECDICT 地址，也允许上传同一文件。限制可信来源、大小、超时及重定向，验证响应和 SHA-256 后交给同一服务；不要求 web 容器持久保存 CSV。下载能力和生产入口目前都尚未实现。
+
+### 管理权限
+
+首位管理员先正常注册，由运维在受信任的 release IEx 中调用
+`Eim.Accounts.Admins.bootstrap(email)`；已有管理员可在 `/manage/users`
+按邮箱查找用户并授予或撤销管理员角色。角色修改有数据库审计记录，并阻止撤销最后一位管理员。
+生产 Ash Admin 和 Oban Web 仅向当前管理员开放，且 Ash Admin 是具有授权绕过能力的可信运维入口；词典导入管理仍未实现。
+未来管理页面应只选择经过审查的制品清单，通过后台任务触发导入，并在每次敏感操作中重新校验权限；不得接受任意 URL 或绕过快照校验。
+
+### 版本模型与发布
+
+采用**隔离构建完整快照 + 原子切换当前版本**，而不是把现有分批 upsert 直接用于在线更新。需要迁移数据结构，并让查词、浏览、详情、词形查询和导入信息统一读取当前快照：
+
+1. 每次导入创建独立的运行记录及候选快照。记录来源版本、文件哈希、**导入逻辑版本**、状态、开始和结束时间、计数与错误摘要。候选快照按批写入独立版本空间，保留与现有查词和浏览相当的索引；已发布快照不可被后续导入修改。
+2. 维护来源的当前快照指针。只有校验和完整导入成功后，在一个数据库事务中更新指针并标记发布成功。所有读取必须基于同一个明确的快照 ID，不能把当前指针和词条/词形分多次独立读取而混入两个版本。没有已发布快照时明确显示未初始化，而不是把候选数据当作完整词典。
+3. 建立稳定的来源词条身份：迁移时保留现有 UUID，并按 ECDICT 的原始 `word` 精确匹配后续版本；词条内容和词形按快照存储。相同原词更新后详情链接继续使用原 UUID；从新版本消失的词条不出现在当前结果，旧详情链接明确显示未找到，不转向其他词条；之后同原词重新出现时复用身份。原词改名按删除和新增处理，不猜测对应关系。不得删除个人收藏、笔记或其历史快照。
+4. 导入前取得来源级数据库互斥锁；持锁连接断开则必须中止该次工作，不能在失锁后继续写入或发布。多个节点、手动与调度任务互斥；不依赖进程内锁。故障后将未完成运行标记为失败或中断，候选数据不发布，重试创建新的运行或安全清理后重建。
+5. 已成功的相同 `source + SHA-256 + 导入逻辑版本` 可跳过重复构建，但仅当对应完整快照仍存在；明确重跑可重新验证并重建。重新发布旧版本应明确指定目标并审计，不能因为发现旧成功记录而悄悄把当前版本切回去。修改解析规则需递增导入逻辑版本。
+6. 保存至少当前和上一个完整快照以便回滚；回滚通过同样受锁保护的指针切换发布，并记录操作。历史制品和清单需按部署方留存策略保存，以便快照清理后重新构建。清理不能删除当前、回滚目标或仍被请求使用的快照。
+
+浏览和查词一次操作涉及多条数据库查询时，应固定使用同一快照，并通过事务锁等数据库机制防止正在使用的快照被清理；分页游标携带快照 ID，切换后旧游标明确提示重新开始，不能静默跨版本翻页。详情使用当前快照，个人生词本的历史快照不随公共词典更新而改变。部署新旧应用版本并存时，必须先完成兼容的 schema/读取改造并确认所有实例支持快照，再启用首次切换，避免旧实例继续读取原表。
+
+### 执行流程
+
+1. 操作人员确认清单、授权和文件来源，准备可读的完整 CSV。首次导入前完成迁移；更新前备份数据库并确认有足够磁盘空间容纳当前、候选及保留的旧快照和索引。
+2. 服务把输入复制到仅任务可写的临时文件，流式计算 SHA-256 并与清单比对；之后仅从该副本导入，避免校验后原文件被替换。缺文件、哈希不符、格式或表头错误均立即失败，不能发布。
+3. 在互斥锁下创建运行和候选快照，流式解析、分批写入。对空词条、缺列、重复词条等明确记录数量与处理规则；生产默认遇到异常数据时停止发布，不以“跳过部分行”冒充完整快照。必须校验非空、唯一键、词形关联及导入计数；可通过清单指定预期行数或允许范围。允许异常的策略如需引入，必须显式配置并在发布记录中披露。
+4. 全部校验通过后原子发布，输出运行 ID、来源版本、SHA-256、导入逻辑版本和计数；最后清理临时文件。网络错误、空间不足、数据库异常或中断均报错并保留旧版本；重试不覆盖线上快照。
+5. 初始化时，先导入并确认发布成功，再将词典服务开放给用户。更新时老版本继续提供服务，发布后检查查词、浏览和详情；若发现问题，显式切回保留的旧快照并调查，不改写个人数据。
+
+现有数据库迁移时不能仅凭最新 `dictionary_imports` 记录认定现有表完整：上一次导入可能在记录完成后又发生过部分失败。应使用已核验的完整 CSV 构建并验证首个快照，同时迁移稳定词条 UUID；核验成功前不切换读取。无法确认历史来源时必须明确标注，不虚构版本。
+
+### 验收与实施顺序
+
+1. 提取共享导入服务和清单校验，保留开发入口；为 release 增加单次任务入口和操作文档。入口的真实参数、命令及配置以实现后的文档为准，当前不要在生产执行假定命令。
+2. 迁移稳定词条身份、版本化数据和运行记录，完成旧 UUID 及个人收藏兼容；改造查词、浏览、详情、词形及最近导入展示统一读取活动快照，再启用原子发布。
+3. 测试首次导入、相同制品重试、导入逻辑升级、新增/变更/删除词条和词形、回滚、旧链接与个人快照、无活动版本；并发任务、失锁、中断、文件被替换、哈希/表头错误、异常行、磁盘及数据库故障均不得发布不完整数据。
+4. 验证发布切换期间的查词与浏览一致性、旧游标行为及多实例部署；使用真实规模的 CSV 测量运行时间、磁盘、索引和数据库压力。运行项目的 `mix precommit`。
+
+## 来源与许可
+
+数据来源为 [ECDICT](https://github.com/skywind3000/ECDICT)，上游仓库包含 MIT 许可及版权声明。部署、展示或再分发前仍需核实数据组成和适用权利，并满足归属及许可条件；仓库许可本身不能证明所有内容的权利已清理。
+
+
+https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv

@@ -196,6 +196,25 @@ defmodule Eim.Accounts.User do
       get_by :email
     end
 
+    read :get_by_email_as_admin do
+      argument :email, :ci_string, allow_nil?: false
+      get? true
+      filter expr(email == ^arg(:email))
+    end
+
+    update :set_admin_role do
+      require_atomic? false
+      accept []
+      argument :role, :atom, allow_nil?: false, constraints: [one_of: [:user, :admin]]
+      change Eim.Accounts.Changes.ChangeAdminRole
+    end
+
+    update :bootstrap_admin do
+      require_atomic? false
+      accept []
+      change {Eim.Accounts.Changes.ChangeAdminRole, bootstrap?: true}
+    end
+
     update :reset_password_with_token do
       argument :reset_token, :string do
         allow_nil? false
@@ -235,6 +254,18 @@ defmodule Eim.Accounts.User do
   end
 
   policies do
+    policy action(:get_by_email_as_admin) do
+      authorize_if Eim.Accounts.Checks.AdminCheck
+    end
+
+    policy action(:set_admin_role) do
+      authorize_if Eim.Accounts.Checks.AdminCheck
+    end
+
+    policy action(:bootstrap_admin) do
+      forbid_if always()
+    end
+
     bypass AshAuthentication.Checks.AshAuthenticationInteraction do
       authorize_if always()
     end
@@ -254,6 +285,12 @@ defmodule Eim.Accounts.User do
     end
 
     attribute :confirmed_at, :utc_datetime_usec
+
+    attribute :role, :atom do
+      allow_nil? false
+      default :user
+      constraints one_of: [:user, :admin]
+    end
   end
 
   relationships do

@@ -29,6 +29,16 @@ defmodule EimWeb.LiveUserAuth do
     end
   end
 
+  def on_mount(:live_admin_required, _params, _session, socket) do
+    user = socket.assigns[:current_user]
+
+    if user && Eim.Accounts.Admins.admin?(user.id) do
+      {:cont, socket}
+    else
+      {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/")}
+    end
+  end
+
   def on_mount(:live_no_user, _params, _session, socket) do
     if socket.assigns[:current_user] do
       {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/")}

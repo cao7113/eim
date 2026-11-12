@@ -1,4 +1,4 @@
-defmodule Mix.Tasks.Eim.ImportEcdict do
+defmodule Mix.Tasks.Eim.Ecdict.Import do
   use Mix.Task
 
   @shortdoc "Imports an ECDICT CSV into the dictionary database"
@@ -9,7 +9,7 @@ defmodule Mix.Tasks.Eim.ImportEcdict do
     {opts, paths, invalid} = OptionParser.parse(args, strict: [version: :string])
 
     if invalid != [] or length(paths) > 1 do
-      Mix.raise("usage: mix eim.import_ecdict [CSV_PATH] [--version SOURCE_VERSION]")
+      Mix.raise("usage: mix eim.ecdict.import [CSV_PATH] [--version SOURCE_VERSION]")
     end
 
     path =

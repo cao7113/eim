@@ -56,6 +56,15 @@ defmodule EimWeb.AuthController do
   def sign_out(conn, _params) do
     return_to = get_session(conn, :return_to) || ~p"/"
 
+    if user = conn.assigns[:current_user] do
+      :ok =
+        Phoenix.PubSub.broadcast(
+          Eim.PubSub,
+          Eim.Accounts.Admins.access_topic(user.id),
+          :admin_access_revoked
+        )
+    end
+
     conn
     |> clear_session(:eim)
     |> put_flash(:info, "You are now signed out")
