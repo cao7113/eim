@@ -150,7 +150,6 @@ defmodule EimWeb.EcdictLive do
       "sources" => [
         %{
           "name" => "ecdict",
-          "version" => entry.source_version,
           "entry_id" => entry.id
         }
       ]

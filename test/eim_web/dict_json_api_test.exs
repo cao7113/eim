@@ -4,7 +4,7 @@ defmodule EimWeb.DictJsonApiTest do
   @fixture Path.expand("../support/fixtures/ecdict_sample.csv", __DIR__)
 
   setup do
-    Eim.Dict.Importer.run(@fixture, "test-version")
+    Eim.Dict.Importer.run(@fixture)
     :ok
   end
 
@@ -18,6 +18,7 @@ defmodule EimWeb.DictJsonApiTest do
              "kind" => "word",
              "match" => "exact",
              "lemma" => "give",
+             "sources" => [%{"name" => "ecdict"}],
              "senses" => [%{"pos" => "vt", "zh" => "给，授予"}, %{"pos" => "vi", "zh" => "让步"}]
            } = json_response(conn, 200)
   end

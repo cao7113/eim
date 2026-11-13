@@ -66,6 +66,7 @@ defmodule EimWeb.AdminDashboardTest do
 
     assert html =~ ~s(id="admin-dashboard-link")
     assert html =~ ~s(id="oban-dashboard-link")
+    assert html =~ ~s(id="mailbox-preview-link")
   end
 
   test "revocation closes connected administrator dashboards" do

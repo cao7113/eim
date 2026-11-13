@@ -13,7 +13,9 @@ mix phx.gen.release --docker
 lp gen > _local/app.yaml
 gate c add _local/app.yaml
 
-# how to init data?
+# import ecdict
+lp xbin import-ecdict _local/ecdict/ecdict.csv
+# 真实生产，需要上传文件，并 import 导入
 ```
 
 Current Mix-based ECDICT import is not a production release task and does not
@@ -27,5 +29,5 @@ After running database migrations, register the first user normally, then open a
 trusted remote IEx session on a running release and run:
 
 ```elixir
-Eim.Accounts.Admins.bootstrap("admin@example.com")
+Eim.Accounts.Admins.bootstrap("admin@eim.s")
 ```

@@ -87,14 +87,6 @@ defmodule EimWeb.Layouts do
                     Live Dashboard
                   </a>
                   <a
-                    href="/dev/mailbox"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
-                  >
-                    Mailbox
-                  </a>
-                  <a
                     href="/api/swaggerui"
                     target="_blank"
                     rel="noopener noreferrer"
@@ -142,6 +134,15 @@ defmodule EimWeb.Layouts do
                   class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
                 >
                   Oban
+                </a>
+                <a
+                  id="mailbox-preview-link"
+                  href="/mailbox/preview"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+                >
+                  Mailbox Preview
                 </a>
               </div>
             </div>

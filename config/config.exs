@@ -112,7 +112,7 @@ config :phoenix_live_view,
 # Configure the mailer
 #
 # By default it uses the "Local" adapter which stores the emails
-# locally. You can see the emails in your browser, at "/dev/mailbox".
+# locally. You can see the emails in your browser, at "/mailbox/preview".
 #
 # For production it's recommended to configure a different adapter
 # at the `config/runtime.exs`.

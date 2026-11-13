@@ -11,7 +11,7 @@ defmodule EimWeb.EcdictLiveTest do
   @fixture Path.expand("../support/fixtures/ecdict_sample.csv", __DIR__)
 
   setup do
-    Importer.run(@fixture, "test-version")
+    Importer.run(@fixture)
     :ok
   end
 
@@ -19,7 +19,7 @@ defmodule EimWeb.EcdictLiveTest do
     {:ok, view, _html} = live(conn, "/dicts/ecdict")
 
     assert has_element?(view, "#ecdict-search-form")
-    assert has_element?(view, "#ecdict-import-info", "No completed import recorded")
+    assert has_element?(view, "#ecdict-import-info", "Last import: 4 rows processed")
 
     view
     |> form("#ecdict-search-form", search: %{q: "GAVE"})
@@ -47,7 +47,6 @@ defmodule EimWeb.EcdictLiveTest do
     assert has_element?(view, "#ecdict-translation", "给")
     assert has_element?(view, "#ecdict-definition")
     assert has_element?(view, "#ecdict-forms", "gave")
-    assert has_element?(view, "#ecdict-detail", "test-version")
     assert has_element?(view, "#ecdict-back[href='/dicts/ecdict?q=gave']")
     assert has_element?(view, "#ecdict-sign-in[href='/dicts/ecdict/#{lexeme.id}/sign-in?q=gave']")
 

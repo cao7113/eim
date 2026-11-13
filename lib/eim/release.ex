@@ -18,6 +18,16 @@ defmodule Eim.Release do
     {:ok, _, _} = Ecto.Migrator.with_repo(repo, &Ecto.Migrator.run(&1, :down, to: version))
   end
 
+  def import_ecdict(path) do
+    load_app()
+
+    for repo <- repos() do
+      Ecto.Migrator.with_repo(repo, fn _ ->
+        Eim.Dict.Importer.run(path)
+      end)
+    end
+  end
+
   defp repos do
     Application.fetch_env!(@app, :ecto_repos)
   end

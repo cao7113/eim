@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ $# -ne 1 ]; then
+	echo "Usage: $0 <ecdict-file>" >&2
+	exit 64
+fi
+
+if [ ! -f "$1" ] || [ ! -r "$1" ]; then
+	echo "File does not exist or is not readable: $1" >&2
+	exit 1
+fi
+
+# 必须在 cd 之前解析为绝对路径
+FILE="$(cd -P -- "$(dirname -- "$1")" && printf '%s/%s' "$(pwd -P)" "$(basename -- "$1")")"
+
+cd -P -- "$(dirname -- "$0")"
+
+ECDICT_PATH="$FILE" exec ./eim eval 'Eim.Release.import_ecdict(System.fetch_env!("ECDICT_PATH")) |> IO.inspect()'

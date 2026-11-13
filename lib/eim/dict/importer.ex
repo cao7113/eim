@@ -1,9 +1,11 @@
 defmodule Eim.Dict.Importer do
   import Ecto.Query
 
-  alias Eim.Dict.Normalize
+  alias Eim.Dict.{Import, Normalize}
   alias Eim.Repo
   alias NimbleCSV.RFC4180, as: CSV
+
+  require Logger
 
   @header ~w(word phonetic definition translation pos collins oxford tag bnc frq exchange)
   @form_types %{
@@ -15,9 +17,51 @@ defmodule Eim.Dict.Importer do
     "t" => "superlative",
     "s" => "plural"
   }
-  @batch_size 1_000
+  @batch_size 2_000
 
-  def run(path, version) do
+  def run(path) do
+    started_at = System.monotonic_time(:millisecond)
+    path = local_path!(path)
+    source_sha256 = source_sha256(path)
+    counts = import_file(path, path)
+    duration_ms = System.monotonic_time(:millisecond) - started_at
+
+    notes =
+      if counts.skipped_rows == 0 do
+        nil
+      else
+        "Skipped #{counts.skipped_rows} blank or malformed CSV rows"
+      end
+
+    Import
+    |> Ash.Changeset.for_create(:record, %{
+      source_path: path,
+      source_sha256: source_sha256,
+      row_count: counts.row_count,
+      duration_ms: duration_ms,
+      notes: notes
+    })
+    |> Ash.create!(domain: Eim.Dict)
+
+    counts
+  end
+
+  defp local_path!(path) do
+    case URI.parse(path) do
+      %URI{scheme: nil} -> Path.expand(path)
+      _ -> raise ArgumentError, "ECDICT import requires a local file path: #{path}"
+    end
+  end
+
+  defp source_sha256(path) do
+    path
+    |> File.stream!(64 * 1024, [])
+    |> Enum.reduce(:crypto.hash_init(:sha256), &:crypto.hash_update(&2, &1))
+    |> :crypto.hash_final()
+    |> Base.encode16(case: :lower)
+  end
+
+  defp import_file(path, source) do
     validate_header!(path)
 
     path
@@ -27,7 +71,7 @@ defmodule Eim.Dict.Importer do
     |> Enum.reduce(%{row_count: 0, skipped_rows: 0}, fn rows, counts ->
       {pairs, skipped_rows} =
         Enum.reduce(rows, {[], 0}, fn row, {pairs, skipped} ->
-          case to_row(row, version) do
+          case to_row(row, source) do
             nil -> {pairs, skipped + 1}
             pair -> {[pair | pairs], skipped}
           end
@@ -35,9 +79,11 @@ defmodule Eim.Dict.Importer do
 
       pairs = Enum.reverse(pairs)
       imported_rows = insert_chunk(pairs)
+      total_imported = counts.row_count + imported_rows
+      Logger.info("imported: #{imported_rows}, total imported: #{total_imported}")
 
       %{
-        row_count: counts.row_count + imported_rows,
+        row_count: total_imported,
         skipped_rows: counts.skipped_rows + skipped_rows
       }
     end)
@@ -98,7 +144,7 @@ defmodule Eim.Dict.Importer do
            exchange
            | _
          ],
-         version
+         source
        ) do
     word = String.trim(word)
 
@@ -123,8 +169,7 @@ defmodule Eim.Dict.Importer do
         frq_rank: to_positive_integer(frq),
         exchange: blank(exchange),
         lemma: lemma,
-        source: "ecdict",
-        source_version: version,
+        source: source,
         inserted_at: now,
         updated_at: now
       }

@@ -7,7 +7,7 @@ defmodule Eim.Dict.EcdictBrowseTest do
   @fixture Path.expand("../../support/fixtures/ecdict_sample.csv", __DIR__)
 
   test "exact and form matches are combined without duplicate source entries" do
-    Importer.run(@fixture, "test-version")
+    Importer.run(@fixture)
 
     assert {:ok, result} = EcdictBrowse.search(" GaVe ", nil)
     assert Enum.map(result.entries, & &1.word) == ["gave", "give"]
@@ -93,7 +93,7 @@ defmodule Eim.Dict.EcdictBrowseTest do
   end
 
   test "matches literal prefixes and form prefixes without duplicate entries" do
-    Importer.run(@fixture, "test-version")
+    Importer.run(@fixture)
     now = DateTime.utc_now()
 
     rows =

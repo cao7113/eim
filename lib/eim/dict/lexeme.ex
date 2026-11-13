@@ -58,8 +58,7 @@ defmodule Eim.Dict.Lexeme do
                       constraints: [
                         items: [
                           fields: [
-                            name: [type: :string, allow_nil?: false],
-                            version: [type: :string]
+                            name: [type: :string, allow_nil?: false]
                           ]
                         ]
                       ]

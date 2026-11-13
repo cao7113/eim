@@ -153,7 +153,7 @@ defmodule EimWeb.Router do
     forward "/", EimWeb.AshJsonApiRouter
   end
 
-  # Enable LiveDashboard and Swoosh mailbox preview in development
+  # Enable LiveDashboard in development
   if Application.compile_env(:eim, :dev_routes) do
     # If you want to use the LiveDashboard in production, you should put
     # it behind authentication and allow only admins to access it.
@@ -166,12 +166,13 @@ defmodule EimWeb.Router do
       pipe_through :browser
 
       live_dashboard "/dashboard", metrics: EimWeb.Telemetry
-      forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
   end
 
   scope "/" do
     pipe_through [:browser, :admin]
+
+    forward "/mailbox/preview", EimWeb.MailboxPreview
 
     oban_dashboard("/oban",
       resolver: EimWeb.ObanResolver,

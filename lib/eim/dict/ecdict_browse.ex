@@ -15,7 +15,7 @@ defmodule Eim.Dict.EcdictBrowse do
          {:ok, position} <- decode_cursor(cursor),
          :ok <- validate_category(category) do
       direction = if position && position.direction == "before", do: :desc, else: :asc
-      base = from l in Lexeme, where: l.source == "ecdict"
+      base = from l in Lexeme
       base = base |> apply_category(category) |> apply_position(position)
 
       results =
@@ -65,7 +65,6 @@ defmodule Eim.Dict.EcdictBrowse do
   def latest_import do
     Repo.one(
       from i in Import,
-        where: i.source == "ecdict",
         order_by: [desc: i.inserted_at, desc: i.id],
         limit: 1
     )
@@ -74,7 +73,7 @@ defmodule Eim.Dict.EcdictBrowse do
   def entry(id) do
     case Ecto.UUID.cast(id) do
       {:ok, uuid} ->
-        case Repo.one(from l in Lexeme, where: l.id == ^uuid and l.source == "ecdict") do
+        case Repo.one(from l in Lexeme, where: l.id == ^uuid) do
           nil ->
             :not_found
 

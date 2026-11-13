@@ -21,11 +21,11 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "source",
+      "source": "source_path",
       "type": "text"
     },
     {
-      "allow_nil?": false,
+      "allow_nil?": true,
       "default": "nil",
       "generated?": false,
       "precision": null,
@@ -33,19 +33,7 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "source_version",
-      "type": "text"
-    },
-    {
-      "allow_nil?": false,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "file_sha256",
+      "source": "source_sha256",
       "type": "text"
     },
     {
@@ -58,6 +46,18 @@
       "scale": null,
       "size": null,
       "source": "row_count",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "duration_ms",
       "type": "bigint"
     },
     {
@@ -103,7 +103,7 @@
   "custom_indexes": [],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "B343B4BE6666BAE3219FD76418B76FA7F956544EDB9B1439D87F669B16655B67",
+  "hash": "3EF7AB5C3E45993C6D769C642F3CAD98CA0806CA8370841760D905CEF5EF0BDC",
   "identities": [],
   "multitenancy": {
     "attribute": null,

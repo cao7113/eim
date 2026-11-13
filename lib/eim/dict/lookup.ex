@@ -83,7 +83,7 @@ defmodule Eim.Dict.Lookup do
       frq_rank: primary.frq_rank,
       senses: Senses.parse(primary.translation),
       tags: primary.tags || [],
-      sources: [%{name: primary.source, version: primary.source_version}]
+      sources: [%{name: "ecdict"}]
     }
   end
 end
