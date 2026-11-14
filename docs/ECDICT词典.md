@@ -101,5 +101,3 @@ mix eim.ecdict.import _local/ecdict/ecdict.csv
 
 数据来源为 [ECDICT](https://github.com/skywind3000/ECDICT)，上游仓库包含 MIT 许可及版权声明。部署、展示或再分发前仍需核实数据组成和适用权利，并满足归属及许可条件；仓库许可本身不能证明所有内容的权利已清理。
 
-
-https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv

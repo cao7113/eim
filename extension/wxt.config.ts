@@ -1,4 +1,5 @@
 import { defineConfig } from 'wxt';
+import { defaultProductionEnvironment, developmentEnvironments, productionEnvironments } from './src/shared/environments';
 
 const args = process.argv.slice(2);
 const modeIndex = args.findIndex((arg) => arg === '--mode' || arg === '-m');
@@ -14,11 +15,11 @@ export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-svelte'],
   webExt: {
-    startUrls: [mode === 'development' ? 'http://localhost:4000' : 'https://github.com'],
+    startUrls: [mode === 'development' ? developmentEnvironments[0].origin : defaultProductionEnvironment.origin],
   },
   manifest: ({ mode }) => ({
     permissions: ['storage', 'identity'],
-    host_permissions:
-      mode === 'development' ? ['http://localhost:4000/*'] : [],
+    host_permissions: (mode === 'development' ? developmentEnvironments : productionEnvironments)
+      .map(({ origin }) => `${origin}/*`),
   }),
 });

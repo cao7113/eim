@@ -6,6 +6,7 @@
     ExtensionActionResult,
     ExtensionAuthResult,
   } from '../../shared/dictionary';
+  import { developmentEnvironments, productionEnvironments, type Environment } from '../../shared/environments';
 
   let enabled = $state(true);
   let connection = $state<'checking' | DictionaryConnection['status']>('checking');
@@ -14,12 +15,71 @@
   let authBusy = $state(false);
   let settingsError = $state('');
   let authError = $state('');
+  let environment = $state<Environment | null>(null);
+  let environmentBusy = $state(false);
+  let environmentError = $state('');
+  let environmentVersion = 0;
+  const environmentOptions = import.meta.env.DEV ? developmentEnvironments : productionEnvironments;
 
   onMount(() => {
     void loadLookupSetting();
-    void refreshConnection();
-    void refreshAccount();
+    void refreshEnvironment();
+
+    const onStorageChanged = (changes: Record<string, unknown>, area: string) => {
+      if (area === 'local' && changes.serviceEnvironment) void refreshEnvironment();
+    };
+    browser.storage.onChanged.addListener(onStorageChanged);
+    return () => browser.storage.onChanged.removeListener(onStorageChanged);
   });
+
+  async function refreshEnvironment() {
+    const version = ++environmentVersion;
+    environmentError = '';
+    connection = 'checking';
+    account = { status: 'signed_out' };
+    try {
+      const result = await browser.runtime.sendMessage({ type: 'get-environment' }) as
+        { environment: Environment } | { error: string };
+      if (version !== environmentVersion) return;
+      if (!('environment' in result)) throw new Error('Environment unavailable');
+      environment = result.environment;
+      void refreshConnection(version);
+      void refreshAccount(version);
+    } catch (error) {
+      console.error('Unable to load service environment:', error);
+      if (version === environmentVersion) {
+        environment = null;
+        connection = 'offline';
+        account = { status: 'offline' };
+        environmentError = '无法读取服务环境，请重试。';
+      }
+    }
+  }
+
+  async function changeEnvironment(event: Event) {
+    const id = (event.currentTarget as HTMLSelectElement).value;
+    environmentBusy = true;
+    environmentError = '';
+    try {
+      const result = await browser.runtime.sendMessage({ type: 'set-environment', id });
+      if (!result?.ok) {
+        if (result?.error === 'notification_failed') {
+          await refreshEnvironment();
+          environmentError = '环境已切换，部分页面可能未更新，请刷新页面。';
+          return;
+        }
+        throw new Error('Environment change failed');
+      }
+      await refreshEnvironment();
+    } catch (error) {
+      console.error('Unable to change service environment:', error);
+      environmentError = '切换环境失败，请重试。';
+      await refreshEnvironment();
+      environmentError = '切换环境失败，请重试。';
+    } finally {
+      environmentBusy = false;
+    }
+  }
 
   async function loadLookupSetting() {
     try {
@@ -33,17 +93,19 @@
     }
   }
 
-  async function refreshConnection() {
+  async function refreshConnection(version = environmentVersion) {
+    if (!environment) return;
     connection = 'checking';
 
     try {
       const result = (await browser.runtime.sendMessage({
         type: 'check-api-connection',
+        environmentId: environment.id,
       })) as DictionaryConnection;
-      connection = result.status;
+      if (version === environmentVersion) connection = result.status;
     } catch (error) {
       console.error('Unable to check dictionary service:', error);
-      connection = 'offline';
+      if (version === environmentVersion) connection = 'offline';
     }
   }
 
@@ -68,26 +130,33 @@
     }
   }
 
-  async function refreshAccount() {
+  async function refreshAccount(version = environmentVersion) {
+    if (!environment) return;
     try {
-      account = (await browser.runtime.sendMessage({
+      const result = (await browser.runtime.sendMessage({
         type: 'get-extension-account',
+        environmentId: environment.id,
       })) as ExtensionAccount;
+      if (version === environmentVersion) account = result;
     } catch (error) {
       console.error('Unable to load extension account:', error);
-      account = { status: 'offline' };
+      if (version === environmentVersion) account = { status: 'offline' };
     }
   }
 
   async function connectAccount() {
+    if (!environment) return;
+    const version = environmentVersion;
     authBusy = true;
     authError = '';
 
     try {
       const result = (await browser.runtime.sendMessage({
         type: 'connect-extension-account',
+        environmentId: environment.id,
       })) as ExtensionAuthResult;
 
+      if (version !== environmentVersion) return;
       if (!result.ok) {
         authError =
           result.error === 'unavailable'
@@ -99,21 +168,25 @@
       account = result.account;
     } catch (error) {
       console.error('Extension account authorization failed:', error);
-      authError = '登录已取消或连接失败，请重试。';
+      if (version === environmentVersion) authError = '登录已取消或连接失败，请重试。';
     } finally {
       authBusy = false;
     }
   }
 
   async function disconnectAccount() {
+    if (!environment) return;
+    const version = environmentVersion;
     authBusy = true;
     authError = '';
 
     try {
       const result = (await browser.runtime.sendMessage({
         type: 'disconnect-extension-account',
+        environmentId: environment.id,
       })) as ExtensionActionResult;
 
+      if (version !== environmentVersion) return;
       if (result.ok) {
         account = { status: 'signed_out' };
       } else {
@@ -124,7 +197,7 @@
       }
     } catch (error) {
       console.error('Extension account disconnect failed:', error);
-      authError = '退出失败，凭据尚未撤销。请重试。';
+      if (version === environmentVersion) authError = '退出失败，凭据尚未撤销。请重试。';
     } finally {
       authBusy = false;
     }
@@ -168,6 +241,19 @@
       </div>
       <span class:online={connection === 'connected'} class:offline={connection === 'offline'} class="status-dot"></span>
     </div>
+    <label class="environment-label" for="service-environment">服务环境</label>
+    <select
+      id="service-environment"
+      class="environment-select"
+      value={environment?.id ?? ''}
+      disabled={environmentBusy || authBusy || !environment}
+      onchange={changeEnvironment}
+    >
+      {#if !environment}<option value="">正在读取环境…</option>{/if}
+      {#each environmentOptions as option}
+        <option value={option.id}>{option.label} · {option.origin}</option>
+      {/each}
+    </select>
     <p class="service-status">
       {#if connection === 'checking'}
         正在检查连接…
@@ -176,14 +262,17 @@
       {:else if connection === 'unconfigured'}
         当前版本尚未配置服务地址
       {:else}
-        无法连接服务，请确认本地服务已启动
+        无法连接服务，请检查当前环境和网络
       {/if}
     </p>
-    <button class="text-button" type="button" onclick={refreshConnection} disabled={connection === 'checking'}>
+    <button class="text-button" type="button" onclick={() => environment ? refreshConnection() : refreshEnvironment()} disabled={connection === 'checking'}>
       重新检查
     </button>
   </section>
 
+  {#if environmentError}
+    <p class="error-message" role="alert">{environmentError}</p>
+  {/if}
   {#if settingsError}
     <p class="error-message" role="alert">{settingsError}</p>
   {/if}
@@ -202,11 +291,11 @@
       {/if}
     </div>
     {#if account.status === 'signed_in' || (account.status === 'offline' && account.email)}
-      <button class="login-button secondary" type="button" disabled={authBusy} onclick={disconnectAccount}>
+      <button class="login-button secondary" type="button" disabled={authBusy || environmentBusy || !environment} onclick={disconnectAccount}>
         退出登录
       </button>
     {:else}
-      <button class="login-button" type="button" disabled={authBusy} onclick={connectAccount}>
+      <button class="login-button" type="button" disabled={authBusy || environmentBusy || !environment} onclick={connectAccount}>
         {authBusy ? '连接中…' : '登录连接'}
       </button>
     {/if}

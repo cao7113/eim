@@ -1,7 +1,17 @@
-# WXT + Svelte
+# Eim 浏览器扩展
 
-This template should help get you started developing with Svelte in WXT.
+## 开发和环境
 
-## Recommended IDE Setup
+在此目录执行 `bun run dev`，在插件弹窗的「服务环境」中切换：
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
+- 本地开发：`http://localhost:4000`（默认）
+- 本地生产：`https://eim.s`
+- 正式环境：`https://eim.fly.dev`
+
+选择保存在浏览器本地，无需重新构建；本地生产环境需要浏览器信任其 HTTPS 证书。每个环境的网页登录和插件凭据相互独立，首次连接时需分别授权，切回时会使用该环境已有的凭据。切换环境会关闭划词浮层；若有未提交的笔记，浮层会保留笔记供复制。旧版无来源标记的插件凭据会被清除，需重新连接账号；旧凭据不会因此在服务端撤销，仍会按原有效期过期。
+
+开发版会请求上述三个站点的访问权限；`bun run build` 和 `bun run zip` 生成的正式版可在两个 HTTPS 环境之间切换，首次使用默认选择 `https://eim.s`，不允许 localhost。已有环境选择会保留；插件不会因服务离线自动切换环境。如果正式版沿用了开发版的 localhost 选择，会改用默认生产环境。
+
+## 检查
+
+执行 `bun run check`、`bun test` 和 `bun run build`。发布前还需按照[扩展发布检查清单](../docs/extension/发布准备与检查清单.md)进行真实浏览器和服务端验收。

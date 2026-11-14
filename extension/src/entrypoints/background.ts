@@ -8,17 +8,65 @@ import type {
   VocabEntryActionResult,
   VocabEntryStatus,
 } from '../shared/dictionary';
+import {
+  defaultProductionEnvironment,
+  developmentEnvironments,
+  productionEnvironments,
+  type Environment,
+} from '../shared/environments';
 
 const trustedStorageReady = browser.storage.local
   .setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })
-  .then(() => true)
+  .then(async () => {
+    await browser.storage.local.remove([
+      'extensionToken',
+      'extensionKeyId',
+      'extensionEmail',
+      'extensionTokenExpiresAt',
+    ]);
+    return true;
+  })
   .catch((error: unknown) => {
     console.error('Unable to restrict extension storage access:', error);
     return false;
   });
 
 export default defineBackground(() => {
-  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (isMessage(message, 'get-environment')) {
+      getEnvironment().then(
+        (environment) => sendResponse({ environment }),
+        (error: unknown) => {
+          console.error('Unable to load service environment:', error);
+          sendResponse({ error: 'unavailable' });
+        },
+      );
+      return true;
+    }
+
+    if (isMessage(message, 'set-environment')) {
+      const id = (message as Record<string, unknown>).id;
+      const environments = import.meta.env.DEV ? developmentEnvironments : productionEnvironments;
+      const environment = environments.find((candidate) => candidate.id === id);
+      if (
+        !environment ||
+        sender.tab ||
+        !sender.url?.startsWith(browser.runtime.getURL('/'))
+      ) {
+        sendResponse({ ok: false });
+        return;
+      }
+
+      setEnvironment(environment).then(
+        (notified) => sendResponse(notified ? { ok: true } : { ok: false, error: 'notification_failed' }),
+        (error: unknown) => {
+          console.error('Unable to change service environment:', error);
+          sendResponse({ ok: false });
+        },
+      );
+      return true;
+    }
+
     if (isMessage(message, 'get-lookup-setting')) {
       getLookupEnabled().then((enabled) => sendResponse({ enabled }));
       return true;
@@ -36,7 +84,7 @@ export default defineBackground(() => {
     }
 
     if (isConnectionCheckMessage(message)) {
-      checkConnection().then(sendResponse, (error: unknown) => {
+      withEnvironment(message, checkConnection).then(sendResponse, (error: unknown) => {
         console.error('Dictionary API connection check failed:', error);
         sendResponse({ status: 'offline' } satisfies DictionaryConnection);
       });
@@ -44,7 +92,7 @@ export default defineBackground(() => {
     }
 
     if (isMessage(message, 'get-extension-account')) {
-      getExtensionAccount().then(sendResponse, (error: unknown) => {
+      withEnvironment(message, getExtensionAccount).then(sendResponse, (error: unknown) => {
         console.error('Unable to load extension account:', error);
         sendResponse({ status: 'offline' } satisfies ExtensionAccount);
       });
@@ -52,7 +100,7 @@ export default defineBackground(() => {
     }
 
     if (isMessage(message, 'connect-extension-account')) {
-      connectExtensionAccount().then(sendResponse, (error: unknown) => {
+      withEnvironment(message, connectExtensionAccount).then(sendResponse, (error: unknown) => {
         console.error('Unable to connect extension account:', error);
         sendResponse({ ok: false, error: 'failed' } satisfies ExtensionAuthResult);
       });
@@ -60,7 +108,7 @@ export default defineBackground(() => {
     }
 
     if (isVocabStatusMessage(message)) {
-      getVocabEntryStatus(message.entry).then(sendResponse, (error: unknown) => {
+      withEnvironment(message, (origin) => getVocabEntryStatus(origin, message.entry)).then(sendResponse, (error: unknown) => {
         console.error('Unable to check saved vocabulary status:', error);
         sendResponse({ status: 'offline' } satisfies VocabEntryStatus);
       });
@@ -68,7 +116,7 @@ export default defineBackground(() => {
     }
 
     if (isSaveVocabMessage(message)) {
-      saveVocabEntry(message.entry, message.note).then(sendResponse, (error: unknown) => {
+      withEnvironment(message, (origin) => saveVocabEntry(origin, message.entry, message.note)).then(sendResponse, (error: unknown) => {
         console.error('Unable to save vocabulary entry:', error);
         sendResponse({ ok: false, error: 'failed' } satisfies VocabEntryActionResult);
       });
@@ -76,7 +124,7 @@ export default defineBackground(() => {
     }
 
     if (isMessage(message, 'disconnect-extension-account')) {
-      disconnectExtensionAccount().then(sendResponse, (error: unknown) => {
+      withEnvironment(message, disconnectExtensionAccount).then(sendResponse, (error: unknown) => {
         console.error('Unable to disconnect extension account:', error);
         sendResponse({ ok: false, error: 'failed' } satisfies ExtensionActionResult);
       });
@@ -85,7 +133,7 @@ export default defineBackground(() => {
 
     if (!isLookupMessage(message)) return;
 
-    lookup(message.text).then(sendResponse, (error: unknown) => {
+    withEnvironment(message, (origin) => lookup(origin, message.text)).then(sendResponse, (error: unknown) => {
       console.error('Dictionary lookup failed:', error);
       sendResponse({ ok: false, error: 'failed' } satisfies LookupResponse);
     });
@@ -95,7 +143,102 @@ export default defineBackground(() => {
 });
 
 const maxTextLength = 500;
-const apiBaseUrl = import.meta.env.DEV ? 'http://localhost:4000' : null;
+
+async function withEnvironment<T>(
+  message: object,
+  operation: (origin: string) => Promise<T>,
+): Promise<T> {
+  const environment = await getEnvironment();
+  if (
+    'environmentId' in message &&
+    message.environmentId !== environment.id
+  ) throw new Error('Service environment changed');
+  return operation(environment.origin);
+}
+
+async function getEnvironment(): Promise<Environment> {
+  if (!(await trustedStorageReady)) throw new Error('Extension storage is unavailable');
+  const { serviceEnvironment } = await browser.storage.local.get('serviceEnvironment');
+  if (serviceEnvironment === undefined) {
+    return import.meta.env.DEV ? developmentEnvironments[0] : defaultProductionEnvironment;
+  }
+  if (!import.meta.env.DEV && serviceEnvironment === 'development') {
+    console.warn('Saved development environment is unavailable in production; using the default production environment');
+    return defaultProductionEnvironment;
+  }
+  const environments = import.meta.env.DEV ? developmentEnvironments : productionEnvironments;
+  const environment = environments.find((candidate) => candidate.id === serviceEnvironment);
+  if (!environment) throw new Error('Invalid service environment');
+  return environment;
+}
+
+async function setEnvironment(environment: Environment): Promise<boolean> {
+  if (!(await trustedStorageReady)) throw new Error('Extension storage is unavailable');
+  await browser.storage.local.set({ serviceEnvironment: environment.id });
+  let tabs;
+  try {
+    tabs = await browser.tabs.query({});
+  } catch (error) {
+    console.error('Unable to notify tabs of the service environment change:', error);
+    return false;
+  }
+  const notifications = Promise.all(
+    tabs
+      .filter((tab) => tab.id !== undefined)
+      .map((tab) =>
+        browser.tabs.sendMessage(tab.id!, { type: 'service-environment-changed' }).catch(() => undefined),
+      ),
+  );
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const notified = await Promise.race([
+    notifications.then(() => true),
+    new Promise<false>((resolve) => {
+      timeout = setTimeout(() => resolve(false), 1000);
+    }),
+  ]);
+  clearTimeout(timeout);
+  if (!notified) console.error('Timed out notifying tabs of the service environment change');
+  return notified;
+}
+
+type Credentials = {
+  token: string;
+  keyId: string;
+  email: string;
+  expiresAt: string;
+};
+
+function credentialsKey(origin: string): string {
+  return `extensionCredentials:${origin}`;
+}
+
+async function readCredentials(origin: string): Promise<Credentials | null> {
+  if (!(await trustedStorageReady)) throw new Error('Extension storage is unavailable');
+  const key = credentialsKey(origin);
+  const value: unknown = (await browser.storage.local.get(key))[key];
+  if (value === undefined) return null;
+  if (
+    typeof value !== 'object' || value === null ||
+    !('token' in value) || typeof value.token !== 'string' ||
+    !('keyId' in value) || typeof value.keyId !== 'string' ||
+    !('email' in value) || typeof value.email !== 'string' ||
+    !('expiresAt' in value) || typeof value.expiresAt !== 'string'
+  ) throw new Error('Invalid extension credentials');
+  return { token: value.token, keyId: value.keyId, email: value.email, expiresAt: value.expiresAt };
+}
+
+const credentialUpdates = new Map<string, Promise<void>>();
+
+async function updateCredentials(origin: string, update: () => Promise<void>): Promise<void> {
+  const previous = credentialUpdates.get(origin) ?? Promise.resolve();
+  const current = previous.catch(() => undefined).then(update);
+  credentialUpdates.set(origin, current);
+  try {
+    await current;
+  } finally {
+    if (credentialUpdates.get(origin) === current) credentialUpdates.delete(origin);
+  }
+}
 
 function isConnectionCheckMessage(message: unknown): message is { type: 'check-api-connection' } {
   return isMessage(message, 'check-api-connection');
@@ -135,7 +278,7 @@ function isLookupMessage(message: unknown): message is { type: 'lookup'; text: s
   return candidate.type === 'lookup' && typeof candidate.text === 'string';
 }
 
-async function lookup(text: string): Promise<LookupResponse> {
+async function lookup(apiBaseUrl: string, text: string): Promise<LookupResponse> {
   if (text.trim().length === 0) {
     return { ok: false, error: 'failed' };
   }
@@ -145,10 +288,6 @@ async function lookup(text: string): Promise<LookupResponse> {
   }
 
   if (!(await getLookupEnabled())) return { ok: false, error: 'disabled' };
-
-  if (!apiBaseUrl) {
-    return { ok: false, error: 'unavailable' };
-  }
 
   const url = new URL('/api/dict/lookup', apiBaseUrl);
   url.searchParams.set('text', text);
@@ -210,9 +349,7 @@ async function setLookupEnabled(enabled: boolean): Promise<void> {
   );
 }
 
-async function checkConnection(): Promise<DictionaryConnection> {
-  if (!apiBaseUrl) return { status: 'unconfigured' };
-
+async function checkConnection(apiBaseUrl: string): Promise<DictionaryConnection> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 3_000);
 
@@ -232,26 +369,20 @@ async function checkConnection(): Promise<DictionaryConnection> {
   }
 }
 
-async function getExtensionAccount(): Promise<ExtensionAccount> {
-  if (!(await trustedStorageReady)) return { status: 'offline' };
-  const { extensionToken, extensionKeyId, extensionEmail } =
-    await browser.storage.local.get(['extensionToken', 'extensionKeyId', 'extensionEmail']);
-  const cachedEmail = typeof extensionEmail === 'string' ? extensionEmail : undefined;
-
-  if (typeof extensionToken !== 'string' || typeof extensionKeyId !== 'string') {
-    return { status: 'signed_out' };
-  }
-
-  if (!apiBaseUrl) return { status: 'offline', email: cachedEmail };
+async function getExtensionAccount(apiBaseUrl: string): Promise<ExtensionAccount> {
+  const credentials = await readCredentials(apiBaseUrl);
+  if (!credentials) return { status: 'signed_out' };
+  const cachedEmail = credentials.email;
 
   try {
     const response = await fetch(new URL('/api/extension/me', apiBaseUrl), {
-      headers: { Authorization: `Bearer ${extensionToken}` },
+      headers: { Authorization: `Bearer ${credentials.token}` },
+      redirect: 'error',
       signal: AbortSignal.timeout(5_000),
     });
 
     if (response.status === 401) {
-      await clearExtensionCredentials();
+      await clearExtensionCredentials(apiBaseUrl, credentials.token);
       return { status: 'signed_out' };
     }
 
@@ -259,7 +390,6 @@ async function getExtensionAccount(): Promise<ExtensionAccount> {
 
     const body: unknown = await response.json();
     if (!isAccountResponse(body)) return { status: 'offline', email: cachedEmail };
-    await browser.storage.local.set({ extensionEmail: body.email });
     return { status: 'signed_in', email: body.email };
   } catch (error) {
     console.error('Unable to verify extension account:', error);
@@ -267,8 +397,8 @@ async function getExtensionAccount(): Promise<ExtensionAccount> {
   }
 }
 
-async function connectExtensionAccount(): Promise<ExtensionAuthResult> {
-  if (!apiBaseUrl || !(await trustedStorageReady)) {
+async function connectExtensionAccount(apiBaseUrl: string): Promise<ExtensionAuthResult> {
+  if (!(await trustedStorageReady)) {
     return { ok: false, error: 'unavailable' };
   }
 
@@ -303,13 +433,12 @@ async function connectExtensionAccount(): Promise<ExtensionAuthResult> {
     return { ok: false, error: 'failed' };
   }
 
-  return exchangeAuthorizationCode(code, verifier);
+  return exchangeAuthorizationCode(apiBaseUrl, code, verifier);
 }
 
-  async function getVocabEntryStatus(entry: DictionaryEntry): Promise<VocabEntryStatus> {
-    const credentials = await getExtensionCredentials();
+  async function getVocabEntryStatus(apiBaseUrl: string, entry: DictionaryEntry): Promise<VocabEntryStatus> {
+    const credentials = await getExtensionCredentials(apiBaseUrl);
     if (credentials.status !== 'signed_in') return credentials;
-    if (!apiBaseUrl) return { status: 'offline' };
 
     const termKey = normalizeTerm(entry.lemma || entry.text);
     const url = new URL('/api/vocab/entries', apiBaseUrl);
@@ -321,11 +450,12 @@ async function connectExtensionAccount(): Promise<ExtensionAuthResult> {
           Accept: 'application/vnd.api+json',
           Authorization: `Bearer ${credentials.token}`,
         },
+        redirect: 'error',
         signal: AbortSignal.timeout(5_000),
       });
 
       if (response.status === 401) {
-        await clearExtensionCredentials();
+        await clearExtensionCredentials(apiBaseUrl, credentials.token);
         return { status: 'signed_out' };
       }
 
@@ -355,13 +485,13 @@ async function connectExtensionAccount(): Promise<ExtensionAuthResult> {
   }
 
   async function saveVocabEntry(
+    apiBaseUrl: string,
     entry: DictionaryEntry,
     note: string,
   ): Promise<VocabEntryActionResult> {
-    const credentials = await getExtensionCredentials();
+    const credentials = await getExtensionCredentials(apiBaseUrl);
     if (credentials.status === 'signed_out') return { ok: false, error: 'signed_out' };
     if (credentials.status === 'offline') return { ok: false, error: 'unavailable' };
-    if (!apiBaseUrl) return { ok: false, error: 'unavailable' };
 
     try {
       const response = await fetch(new URL('/api/vocab/entries', apiBaseUrl), {
@@ -371,6 +501,7 @@ async function connectExtensionAccount(): Promise<ExtensionAuthResult> {
           'Content-Type': 'application/vnd.api+json',
           Authorization: `Bearer ${credentials.token}`,
         },
+        redirect: 'error',
         body: JSON.stringify({
           data: {
             type: 'vocab-entry',
@@ -387,7 +518,7 @@ async function connectExtensionAccount(): Promise<ExtensionAuthResult> {
       });
 
       if (response.status === 401) {
-        await clearExtensionCredentials();
+        await clearExtensionCredentials(apiBaseUrl, credentials.token);
         return { ok: false, error: 'signed_out' };
       }
 
@@ -413,20 +544,14 @@ async function connectExtensionAccount(): Promise<ExtensionAuthResult> {
     }
   }
 
-  async function getExtensionCredentials(): Promise<
+  async function getExtensionCredentials(origin: string): Promise<
     | { status: 'signed_in'; token: string }
     | { status: 'signed_out' }
     | { status: 'offline' }
   > {
-    if (!(await trustedStorageReady)) return { status: 'offline' };
-    const { extensionToken, extensionKeyId } = await browser.storage.local.get([
-      'extensionToken',
-      'extensionKeyId',
-    ]);
-    if (typeof extensionToken !== 'string' || typeof extensionKeyId !== 'string') {
-      return { status: 'signed_out' };
-    }
-    return { status: 'signed_in', token: extensionToken };
+    const credentials = await readCredentials(origin);
+    if (!credentials) return { status: 'signed_out' };
+    return { status: 'signed_in', token: credentials.token };
   }
 
   function normalizeTerm(value: string): string {
@@ -483,10 +608,11 @@ async function connectExtensionAccount(): Promise<ExtensionAuthResult> {
   }
 
   async function exchangeAuthorizationCode(
+    apiBaseUrl: string,
     code: string,
     verifier: string,
   ): Promise<ExtensionAuthResult> {
-    if (!apiBaseUrl || !(await trustedStorageReady)) {
+    if (!(await trustedStorageReady)) {
       return { ok: false, error: 'unavailable' };
     }
 
@@ -495,6 +621,7 @@ async function connectExtensionAccount(): Promise<ExtensionAuthResult> {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ code, code_verifier: verifier }),
+      redirect: 'error',
       signal: AbortSignal.timeout(5_000),
     });
 
@@ -506,12 +633,14 @@ async function connectExtensionAccount(): Promise<ExtensionAuthResult> {
     const body: unknown = await response.json();
     if (!isTokenResponse(body)) return { ok: false, error: 'failed' };
 
-    await browser.storage.local.set({
-      extensionToken: body.token,
-      extensionKeyId: body.key_id,
-      extensionEmail: body.user.email,
-      extensionTokenExpiresAt: body.expires_at,
-    });
+    await updateCredentials(apiBaseUrl, () => browser.storage.local.set({
+      [credentialsKey(apiBaseUrl)]: {
+        token: body.token,
+        keyId: body.key_id,
+        email: body.user.email,
+        expiresAt: body.expires_at,
+      },
+    }));
 
     return { ok: true, account: { status: 'signed_in', email: body.user.email } };
   } catch (error) {
@@ -520,27 +649,20 @@ async function connectExtensionAccount(): Promise<ExtensionAuthResult> {
   }
 }
 
-async function disconnectExtensionAccount(): Promise<ExtensionActionResult> {
-  if (!(await trustedStorageReady)) return { ok: false, error: 'unavailable' };
-  const { extensionToken, extensionKeyId } =
-    await browser.storage.local.get(['extensionToken', 'extensionKeyId']);
-
-  if (typeof extensionToken !== 'string' || typeof extensionKeyId !== 'string') {
-    await clearExtensionCredentials();
-    return { ok: true };
-  }
-
-  if (!apiBaseUrl) return { ok: false, error: 'unavailable' };
+async function disconnectExtensionAccount(apiBaseUrl: string): Promise<ExtensionActionResult> {
+  const credentials = await readCredentials(apiBaseUrl);
+  if (!credentials) return { ok: true };
 
   try {
     const response = await fetch(new URL('/api/extension/session', apiBaseUrl), {
       method: 'DELETE',
       headers: {
         Accept: 'application/json',
-        Authorization: `Bearer ${extensionToken}`,
+        Authorization: `Bearer ${credentials.token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ key_id: extensionKeyId }),
+      body: JSON.stringify({ key_id: credentials.keyId }),
+      redirect: 'error',
       signal: AbortSignal.timeout(5_000),
     });
 
@@ -548,7 +670,7 @@ async function disconnectExtensionAccount(): Promise<ExtensionActionResult> {
       return { ok: false, error: 'failed' };
     }
 
-    await clearExtensionCredentials();
+    await clearExtensionCredentials(apiBaseUrl, credentials.token);
     return { ok: true };
   } catch (error) {
     console.error('Unable to revoke extension credentials:', error);
@@ -556,13 +678,11 @@ async function disconnectExtensionAccount(): Promise<ExtensionActionResult> {
   }
 }
 
-async function clearExtensionCredentials() {
-  await browser.storage.local.remove([
-    'extensionToken',
-    'extensionKeyId',
-    'extensionEmail',
-    'extensionTokenExpiresAt',
-  ]);
+async function clearExtensionCredentials(origin: string, token: string): Promise<void> {
+  await updateCredentials(origin, async () => {
+    const credentials = await readCredentials(origin);
+    if (credentials?.token === token) await browser.storage.local.remove(credentialsKey(origin));
+  });
 }
 
 function isAccountResponse(value: unknown): value is { id: string; email: string } {

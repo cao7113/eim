@@ -8,6 +8,7 @@
     VocabEntryActionResult,
     VocabEntryStatus,
   } from '../../shared/dictionary';
+  import type { Environment } from '../../shared/environments';
 
   let root: HTMLElement;
   let lookupEnabled = $state(true);
@@ -25,6 +26,8 @@
   let vocabError = $state('');
   let requestId = 0;
   let vocabActionId = 0;
+  let environmentId: Environment['id'] | null = null;
+  let environmentChanged = $state(false);
 
   const maxTextLength = 500;
   const maxNoteLength = 2000;
@@ -39,6 +42,22 @@
       });
 
     const onSettingsChanged = (message: unknown) => {
+      if (
+        typeof message === 'object' &&
+        message !== null &&
+        (message as Record<string, unknown>).type === 'service-environment-changed'
+      ) {
+        if (visible && entry && note.trim()) {
+          requestId += 1;
+          vocabActionId += 1;
+          loading = false;
+          vocabBusy = false;
+          environmentChanged = true;
+        } else {
+          closePopup();
+        }
+        return;
+      }
       if (
         typeof message === 'object' &&
         message !== null &&
@@ -98,6 +117,7 @@
     vocabError = '';
     note = '';
     noteExpanded = false;
+    environmentChanged = false;
     visible = true;
 
     if (selected.length > maxTextLength) {
@@ -109,9 +129,15 @@
     loading = true;
 
     try {
+      const environmentResult = await browser.runtime.sendMessage({ type: 'get-environment' }) as
+        { environment: Environment } | { error: string };
+      if (currentRequestId !== requestId) return;
+      if (!('environment' in environmentResult)) throw new Error('Environment unavailable');
+      environmentId = environmentResult.environment.id;
       const response = (await browser.runtime.sendMessage({
         type: 'lookup',
         text: selected,
+        environmentId,
       })) as LookupResponse;
 
       if (currentRequestId !== requestId) return;
@@ -143,6 +169,7 @@
       const result = (await browser.runtime.sendMessage({
         type: 'get-vocab-entry-status',
         entry: currentEntry,
+        environmentId,
       })) as VocabEntryStatus;
       if (currentRequestId === requestId) vocabStatus = result;
     } catch (reason) {
@@ -160,6 +187,7 @@
     try {
       const result = (await browser.runtime.sendMessage({
         type: 'connect-extension-account',
+        environmentId,
       })) as ExtensionAuthResult;
 
       if (currentRequestId !== requestId || currentActionId !== vocabActionId) return;
@@ -197,6 +225,7 @@
         type: 'save-vocab-entry',
         entry: currentEntry,
         note: currentNote,
+        environmentId,
       })) as VocabEntryActionResult;
 
       if (currentRequestId !== requestId || currentActionId !== vocabActionId) return;
@@ -303,7 +332,13 @@
         {/if}
 
         <div class="eim-vocab">
-          {#if vocabStatus.status === 'checking'}
+          {#if environmentChanged}
+            <label class="eim-note-label" for="eim-vocab-note">未提交的笔记</label>
+            <textarea id="eim-vocab-note" class="eim-note" bind:value={note} rows="2"></textarea>
+            <p class="eim-state eim-error" role="alert">
+              环境已切换，请复制笔记后重新划词。如收藏正在提交，请检查原环境。
+            </p>
+          {:else if vocabStatus.status === 'checking'}
             <p class="eim-state">检查收藏状态…</p>
           {:else if vocabStatus.status === 'saved'}
             <time class="eim-saved-date" role="status" datetime={vocabStatus.insertedAt}>

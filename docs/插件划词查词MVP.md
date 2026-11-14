@@ -148,7 +148,7 @@ http://localhost:4000/api/dict/lookup
 ## 7. 权限、CORS 与环境
 
 - 词典请求只由 background service worker 发起，host permission 应按环境限制到实际 API host。
-- 开发版允许 `http://localhost:4000/*`；不要为了方便给生产构建加入 localhost 权限。
+- 开发版允许 localhost、本地生产和正式服务三个固定环境；生产构建允许两个 HTTPS 服务，不包含 localhost 权限。
 - 若开发环境请求仍被浏览器拦截，先检查生成的 manifest 和扩展 host permission。不要默认给 Phoenix API 增加宽泛 CORS；只有改为网页上下文直接请求时才需要重新评估 CORS。
 - MVP 没有用户认证。API 暂时仅供本地开发使用；发布给真实用户前，必须先确定部署地址、身份验证、滥用防护和速率限制策略。
 - 不在插件中放置服务端密钥。不要把用户整段网页内容或选区写入持久化存储或遥测。
