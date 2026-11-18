@@ -7,14 +7,14 @@ defmodule Mix.Tasks.Dev.Seed do
 
   @user_email "dev@l.h"
   @admin_email "admin@l.h"
-  @password "password123456"
 
-  @shortdoc "Creates confirmed development and administrator users"
+  @shortdoc "Creates development and administrator users"
   @moduledoc """
-  Creates or updates #{@user_email} and the administrator #{@admin_email}, both
-  with the local development password #{@password}.
+  Creates or updates #{@user_email} and the administrator #{@admin_email}.
 
-  This task is only available in the dev environment.
+  Authentication is delegated to Authx: these local records are linked to the
+  matching Authx accounts by verified email on first OIDC login. This task is
+  only available in the dev environment.
   """
 
   @impl Mix.Task
@@ -25,21 +25,15 @@ defmodule Mix.Tasks.Dev.Seed do
 
     Mix.Task.run("app.start")
 
-    {:ok, hashed_password} = AshAuthentication.BcryptProvider.hash(@password)
-
-    seed_user!(@user_email, hashed_password)
-    admin = seed_user!(@admin_email, hashed_password)
+    seed_user!(@user_email)
+    admin = seed_user!(@admin_email)
     ensure_admin!(admin.id)
 
     Mix.shell().info("Development users #{@user_email} and #{@admin_email} are ready.")
   end
 
-  defp seed_user!(email, hashed_password) do
-    Ash.Seed.upsert!(
-      User,
-      %{email: email, hashed_password: hashed_password, confirmed_at: DateTime.utc_now()},
-      identity: :unique_email
-    )
+  defp seed_user!(email) do
+    Ash.Seed.upsert!(User, %{email: email}, identity: :unique_email)
   end
 
   defp ensure_admin!(id) do

@@ -309,15 +309,7 @@ defmodule EimWeb.VocabJsonApiTest do
     }
   end
 
-  defp create_user(email) do
-    {:ok, hashed_password} = AshAuthentication.BcryptProvider.hash("password123456")
-
-    Ash.Seed.seed!(Accounts.User, %{
-      email: email,
-      hashed_password: hashed_password,
-      confirmed_at: DateTime.utc_now()
-    })
-  end
+  defp create_user(email), do: Eim.AccountsFixtures.user_fixture(email)
 
   defp create_api_key(user) do
     {:ok, api_key} =

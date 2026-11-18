@@ -10,25 +10,12 @@ defmodule EimWeb.PageControllerTest do
     assert response =~ "how-it-works"
     refute response =~ "Phoenix Framework"
     refute response =~ ~s(id="dev-tools")
+    assert response =~ ~s(id="sign-in-link")
+    assert response =~ ~s(href="/auth/user/authx")
   end
 
   test "GET / displays the signed-in user's email", %{conn: conn} do
-    password = "password123456"
-    {:ok, hashed_password} = AshAuthentication.BcryptProvider.hash(password)
-
-    Ash.Seed.seed!(Eim.Accounts.User, %{
-      email: "reader@example.com",
-      hashed_password: hashed_password,
-      confirmed_at: DateTime.utc_now()
-    })
-
-    strategy = AshAuthentication.Info.strategy!(Eim.Accounts.User, :password)
-
-    {:ok, user} =
-      AshAuthentication.Strategy.action(strategy, :sign_in, %{
-        email: "reader@example.com",
-        password: password
-      })
+    user = Eim.AccountsFixtures.user_fixture("reader@example.com")
 
     conn =
       conn
@@ -40,10 +27,14 @@ defmodule EimWeb.PageControllerTest do
 
     assert response =~ ~s(id="current-user-email")
     assert response =~ "reader@example.com"
+    assert response =~ ~s(id="user-tools")
+    assert response =~ ~s(id="user-tools-toggle")
+    assert response =~ ~s(id="user-tools-menu")
     assert response =~ ~s(id="sign-out-link")
     assert response =~ ~s(id="vocabulary-link")
     assert response =~ ~s(href="/learn/vocab")
     assert response =~ "Open Vocabulary"
     refute response =~ ~s(href="/sign-in")
+    refute response =~ ~s(id="sign-in-link")
   end
 end

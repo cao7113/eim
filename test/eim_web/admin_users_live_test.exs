@@ -3,7 +3,6 @@ defmodule EimWeb.AdminUsersLiveTest do
 
   import Phoenix.LiveViewTest
 
-  alias Eim.Accounts.User
   alias Eim.Accounts.Admins, as: AdminRoles
 
   test "only administrators can manage roles and revoked sessions lose access", %{conn: conn} do
@@ -33,27 +32,7 @@ defmodule EimWeb.AdminUsersLiveTest do
              |> render_submit()
   end
 
-  defp create_user(email) do
-    {:ok, password} = AshAuthentication.BcryptProvider.hash("password123456")
+  defp create_user(email), do: Eim.AccountsFixtures.user_fixture(email)
 
-    Ash.Seed.seed!(User, %{
-      email: email,
-      hashed_password: password,
-      confirmed_at: DateTime.utc_now()
-    })
-  end
-
-  defp signed_in_conn(user) do
-    strategy = AshAuthentication.Info.strategy!(User, :password)
-
-    {:ok, authenticated} =
-      AshAuthentication.Strategy.action(strategy, :sign_in, %{
-        email: user.email,
-        password: "password123456"
-      })
-
-    build_conn()
-    |> init_test_session(%{})
-    |> AshAuthentication.Plug.Helpers.store_in_session(authenticated)
-  end
+  defp signed_in_conn(user), do: Eim.AccountsFixtures.signed_in_conn(user)
 end

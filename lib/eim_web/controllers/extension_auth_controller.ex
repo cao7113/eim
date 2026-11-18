@@ -3,79 +3,33 @@ defmodule EimWeb.ExtensionAuthController do
   require Ash.Query
 
   alias Eim.Accounts
-  alias Eim.Accounts.ExtensionAuth
-  alias Eim.Repo
+  alias Eim.Accounts.User
 
   @api_key_lifetime_days 30
 
-  def authorize(conn, params) do
-    with {:ok, redirect_uri} <- validate_redirect_uri(params["redirect_uri"]),
-         {:ok, challenge} <- validate_challenge(params["code_challenge"]),
-         {:ok, state} <- validate_state(params["state"]) do
-      case conn.assigns[:current_user] do
-        nil ->
-          return_to =
-            "/extension/authorize?" <>
-              URI.encode_query(%{
-                "redirect_uri" => redirect_uri,
-                "code_challenge" => challenge,
-                "state" => state
-              })
+  def authx(conn, params) do
+    with {:ok, request} <- build_authx_request(params),
+         :ok <- validate_extension_redirect_uri(request.redirect_uri) do
+      case exchange_and_register(request) do
+        {:ok, credentials} ->
+          json(conn, credentials)
 
-          conn
-          |> put_session(:return_to, return_to)
-          |> redirect(to: ~p"/sign-in")
+        {:error, :invalid_code} ->
+          send_resp(conn, :unauthorized, "Invalid or expired authorization code")
 
-        user ->
-          case ExtensionAuth.issue_code(user.id, challenge) do
-            {:ok, code} ->
-              callback_uri =
-                redirect_uri <>
-                  "#" <>
-                  URI.encode_query(%{"code" => code, "state" => state})
+        {:error, :email_not_verified} ->
+          send_resp(conn, :unauthorized, "Authx account email is not verified")
 
-              redirect(conn, external: callback_uri)
-
-            {:error, reason} ->
-              require Logger
-              Logger.error("Unable to issue extension authorization code: #{inspect(reason)}")
-              send_resp(conn, :internal_server_error, "Unable to start extension authorization")
-          end
+        {:error, reason} ->
+          internal_error(conn, "connect extension", reason)
       end
     else
-      {:error, _reason} ->
+      {:error, :invalid_redirect_uri} ->
+        send_resp(conn, :bad_request, "Invalid extension authorization request")
+
+      {:error, :invalid_request} ->
         send_resp(conn, :bad_request, "Invalid extension authorization request")
     end
-  end
-
-  def exchange(conn, %{"code" => code, "code_verifier" => verifier}) do
-    result =
-      Repo.transaction(fn ->
-        with {:ok, user_id} <- ExtensionAuth.consume_code(code, verifier),
-             {:ok, user} <- get_user(user_id),
-             {:ok, credentials} <- create_api_key(user) do
-          credentials
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
-
-    case result do
-      {:ok, credentials} ->
-        json(conn, credentials)
-
-      {:error, :invalid_code} ->
-        send_resp(conn, :unauthorized, "Invalid or expired authorization code")
-
-      {:error, reason} ->
-        require Logger
-        Logger.error("Unable to exchange extension authorization code: #{inspect(reason)}")
-        send_resp(conn, :internal_server_error, "Unable to connect extension")
-    end
-  end
-
-  def exchange(conn, _params) do
-    send_resp(conn, :bad_request, "Missing authorization code or verifier")
   end
 
   def me(conn, _params) do
@@ -111,14 +65,75 @@ defmodule EimWeb.ExtensionAuthController do
 
   def revoke(conn, _params), do: send_resp(conn, :bad_request, "Missing API key id")
 
-  defp get_user(user_id) do
-    case Ash.get(Accounts.User, user_id,
-           domain: Accounts,
-           authorize?: false
-         ) do
-      {:ok, nil} -> {:error, :user_not_found}
-      result -> result
+  defp build_authx_request(%{
+         "code" => code,
+         "state" => state,
+         "nonce" => nonce,
+         "code_verifier" => verifier,
+         "redirect_uri" => redirect_uri
+       })
+       when is_binary(code) and byte_size(code) in 1..2048 and
+              is_binary(state) and byte_size(state) in 16..256 and
+              is_binary(nonce) and byte_size(nonce) in 16..256 and
+              is_binary(verifier) and byte_size(verifier) in 43..128 and
+              is_binary(redirect_uri) and byte_size(redirect_uri) in 1..2048 do
+    {:ok,
+     %{
+       code: code,
+       state: state,
+       nonce: nonce,
+       verifier: verifier,
+       redirect_uri: redirect_uri
+     }}
+  end
+
+  defp build_authx_request(_params), do: {:error, :invalid_request}
+
+  defp validate_extension_redirect_uri(redirect_uri) do
+    allowed = Application.fetch_env!(:eim, :extension_oidc_redirect_uris)
+
+    if redirect_uri in allowed,
+      do: :ok,
+      else: {:error, :invalid_redirect_uri}
+  end
+
+  defp exchange_and_register(request) do
+    with {:ok, user_info, oauth_tokens} <-
+           oidc_client().exchange(
+             request.code,
+             request.state,
+             request.nonce,
+             request.verifier,
+             request.redirect_uri
+           ),
+         :ok <- validate_user_info(user_info),
+         {:ok, user} <- register_user(user_info, oauth_tokens),
+         {:ok, credentials} <- create_api_key(user) do
+      {:ok, credentials}
     end
+  end
+
+  defp validate_user_info(user_info) do
+    if user_info["email_verified"] == true and is_binary(user_info["sub"]) and
+         is_binary(user_info["email"]) do
+      :ok
+    else
+      {:error, :email_not_verified}
+    end
+  end
+
+  defp register_user(user_info, oauth_tokens) do
+    User
+    |> Ash.Changeset.for_create(
+      :register_with_authx,
+      %{user_info: user_info, oauth_tokens: oauth_tokens},
+      authorize?: false
+    )
+    |> Ash.create(domain: Accounts, authorize?: false)
+  end
+
+  defp oidc_client do
+    Application.get_env(:eim, :extension_oidc_client, Eim.Accounts.ExtensionOidc)
   end
 
   defp create_api_key(user) do
@@ -152,38 +167,6 @@ defmodule EimWeb.ExtensionAuthController do
         {:error, reason}
     end
   end
-
-  defp validate_redirect_uri(uri) when is_binary(uri) do
-    case URI.parse(uri) do
-      %URI{scheme: "https", host: host, path: "/", port: 443, query: nil, fragment: nil} ->
-        if Regex.match?(~r/\A[a-p]{32}\.chromiumapp\.org\z/, host) do
-          {:ok, uri}
-        else
-          {:error, :invalid_redirect_uri}
-        end
-
-      _ ->
-        {:error, :invalid_redirect_uri}
-    end
-  end
-
-  defp validate_redirect_uri(_), do: {:error, :invalid_redirect_uri}
-
-  defp validate_challenge(challenge) when is_binary(challenge) do
-    if Regex.match?(~r/\A[A-Za-z0-9_-]{43}\z/, challenge),
-      do: {:ok, challenge},
-      else: {:error, :invalid_challenge}
-  end
-
-  defp validate_challenge(_), do: {:error, :invalid_challenge}
-
-  defp validate_state(state) when is_binary(state) do
-    if Regex.match?(~r/\A[A-Za-z0-9_-]{32,128}\z/, state),
-      do: {:ok, state},
-      else: {:error, :invalid_state}
-  end
-
-  defp validate_state(_), do: {:error, :invalid_state}
 
   defp internal_error(conn, action, reason) do
     require Logger

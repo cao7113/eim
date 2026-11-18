@@ -3,7 +3,7 @@ defmodule EimWeb.AuditAdminTest do
 
   import Phoenix.LiveViewTest
 
-  alias Eim.Accounts.{Admins, User}
+  alias Eim.Accounts.Admins
   alias Eim.Audit.Event
 
   test "the standalone audit route is not registered" do
@@ -11,19 +11,8 @@ defmodule EimWeb.AuditAdminTest do
   end
 
   test "audit events are available in Ash Admin for reading, not creating", %{conn: conn} do
-    user =
-      Ash.Seed.seed!(User, %{
-        email: "audit-admin@example.com",
-        hashed_password: "test",
-        confirmed_at: DateTime.utc_now()
-      })
-
-    target =
-      Ash.Seed.seed!(User, %{
-        email: "audit-target@example.com",
-        hashed_password: "test",
-        confirmed_at: DateTime.utc_now()
-      })
+    user = Eim.AccountsFixtures.user_fixture("audit-admin@example.com")
+    target = Eim.AccountsFixtures.user_fixture("audit-target@example.com")
 
     assert {:ok, _} = Admins.bootstrap(to_string(user.email))
     assert {:ok, _} = Admins.set_role(user.id, target.id, :admin)

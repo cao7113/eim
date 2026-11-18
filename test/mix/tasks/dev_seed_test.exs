@@ -1,6 +1,8 @@
 defmodule Mix.Tasks.Dev.SeedTest do
   use Eim.DataCase, async: false
 
+  require Ash.Query
+
   alias Eim.Accounts.{Admins, User}
 
   setup do
@@ -17,26 +19,25 @@ defmodule Mix.Tasks.Dev.SeedTest do
     :ok
   end
 
-  test "creates confirmed users with the development password and is repeatable" do
+  test "creates development users and is repeatable" do
     Mix.Tasks.Dev.Seed.run([])
-    admin = sign_in!("admin@l.h")
-    user = sign_in!("dev@l.h")
+    admin = user_by_email!("admin@l.h")
+    user = user_by_email!("dev@l.h")
     assert Admins.admin?(admin.id)
     refute Admins.admin?(user.id)
 
     assert Repo.aggregate(from(e in "audit_events"), :count) == 1
     Mix.Tasks.Dev.Seed.run([])
-    assert Admins.admin?(sign_in!("admin@l.h").id)
+    assert Admins.admin?(user_by_email!("admin@l.h").id)
     assert Repo.aggregate(from(e in "audit_events"), :count) == 1
   end
 
   test "grants the role when another administrator exists" do
-    existing =
-      Ash.Seed.seed!(User, %{email: "existing-admin@l.h", hashed_password: "test"})
+    existing = Ash.Seed.seed!(User, %{email: "existing-admin@l.h"})
 
     assert {:ok, _} = Admins.bootstrap("existing-admin@l.h")
     Mix.Tasks.Dev.Seed.run([])
-    admin = sign_in!("admin@l.h")
+    admin = user_by_email!("admin@l.h")
     assert Admins.admin?(admin.id)
 
     assert Repo.exists?(
@@ -55,14 +56,11 @@ defmodule Mix.Tasks.Dev.SeedTest do
     end
   end
 
-  defp sign_in!(email) do
-    strategy = AshAuthentication.Info.strategy!(User, :password)
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :sign_in, %{
-               email: email,
-               password: "password123456"
-             })
+  defp user_by_email!(email) do
+    {:ok, user} =
+      User
+      |> Ash.Query.filter(email == ^email)
+      |> Ash.read_one(domain: Eim.Accounts, authorize?: false)
 
     user
   end

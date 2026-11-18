@@ -135,15 +135,6 @@ defmodule EimWeb.Layouts do
                 >
                   Oban
                 </a>
-                <a
-                  id="mailbox-preview-link"
-                  href="/mailbox/preview"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
-                >
-                  Mailbox Preview
-                </a>
               </div>
             </div>
           </div>
@@ -163,26 +154,45 @@ defmodule EimWeb.Layouts do
             Dictionary
           </a>
           <%= if @current_user do %>
-            <span class="flex min-w-0 items-center gap-1 text-sm font-medium text-slate-600">
-              <span
-                id="current-user-email"
-                class="max-w-[9rem] truncate sm:max-w-none"
-                title={@current_user.email}
+            <div id="user-tools" class="nav-tools group relative">
+              <button
+                id="user-tools-toggle"
+                type="button"
+                aria-expanded="false"
+                aria-controls="user-tools-menu"
+                class="flex min-w-0 cursor-pointer items-center gap-1 text-sm font-medium text-slate-600 transition hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lime-700"
               >
-                {@current_user.email}
-              </span>
-              <span :if={@admin?} id="current-user-admin" class="shrink-0 text-slate-500">
-                (admin)
-              </span>
-            </span>
-            <.link
-              id="sign-out-link"
-              href="/sign-out"
-              method="delete"
-              class="text-sm font-semibold text-slate-700 transition hover:text-slate-950"
-            >
-              Sign out
-            </.link>
+                <span
+                  id="current-user-email"
+                  class="max-w-[9rem] truncate sm:max-w-none"
+                  title={@current_user.email}
+                >
+                  {@current_user.email}
+                </span>
+                <span :if={@admin?} id="current-user-admin" class="shrink-0 text-slate-500">
+                  (admin)
+                </span>
+                <.icon
+                  name="hero-chevron-down"
+                  class="size-4 transition group-hover:rotate-180 group-focus-within:rotate-180"
+                />
+              </button>
+              <div
+                id="user-tools-menu"
+                class="nav-tools-menu absolute right-0 top-full z-50 hidden w-44 pt-2"
+              >
+                <div class="rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg shadow-slate-950/10">
+                  <.link
+                    id="sign-out-link"
+                    href="/sign-out"
+                    method="delete"
+                    class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+                  >
+                    Sign out
+                  </.link>
+                </div>
+              </div>
+            </div>
           <% else %>
             <a
               href="/#how-it-works"
@@ -191,16 +201,11 @@ defmodule EimWeb.Layouts do
               How it works
             </a>
             <a
-              href="/sign-in"
-              class="text-sm font-semibold text-slate-700 transition hover:text-slate-950"
+              id="sign-in-link"
+              href="/auth/user/authx"
+              class="inline-flex items-center gap-1.5 rounded-xl bg-lime-300 px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-sm shadow-lime-300/40 transition hover:-translate-y-0.5 hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-700"
             >
-              Sign in
-            </a>
-            <a
-              href="/register"
-              class="rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-lime-800"
-            >
-              Get started
+              Sign in with Authx
             </a>
           <% end %>
           <.theme_toggle />

@@ -1,68 +1,50 @@
 defmodule EimWeb.ExtensionAuthControllerTest do
   use EimWeb.ConnCase, async: false
 
-  alias Eim.Accounts
-  alias Eim.Accounts.ExtensionAuth
+  require Ash.Query
 
-  @redirect_uri "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.chromiumapp.org/"
+  alias Eim.Accounts.UserIdentity
+
+  @extension_redirect_uri "https://mkbjhjbecifpejjljcjbadocpfiepoen.chromiumapp.org/"
   @email "extension-user@example.com"
 
-  test "authorization redirects unauthenticated users to web sign-in and returns after login", %{
-    conn: conn
-  } do
-    verifier = verifier()
-    challenge = ExtensionAuth.code_challenge(verifier)
-    state = verifier()
-    url = authorization_url(challenge, state)
+  setup do
+    original_client = Application.fetch_env(:eim, :extension_oidc_client)
+    original_result = Application.fetch_env(:eim, :extension_oidc_stub_result)
 
-    conn = get(conn, url)
-    assert redirected_to(conn) == "/sign-in"
+    Application.put_env(:eim, :extension_oidc_client, Eim.StubExtensionOidc)
 
-    user = sign_in_user(create_user())
+    on_exit(fn ->
+      restore_env(:extension_oidc_client, original_client)
+      restore_env(:extension_oidc_stub_result, original_result)
+    end)
 
-    conn =
-      conn
-      |> recycle()
-      |> init_test_session(%{})
-      |> AshAuthentication.Plug.Helpers.store_in_session(user)
-      |> get(url)
-
-    callback = URI.parse(redirected_to(conn))
-    assert callback.scheme == "https"
-    assert callback.host == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.chromiumapp.org"
-    assert %{"state" => ^state, "code" => code} = URI.decode_query(callback.fragment)
-    assert byte_size(code) == 43
+    :ok
   end
 
-  test "authorization code is PKCE-bound, single-use, and exchanged for a revocable API key", %{
-    conn: conn
-  } do
-    user = create_user()
-    verifier = verifier()
-    challenge = ExtensionAuth.code_challenge(verifier)
-    {:ok, code} = ExtensionAuth.issue_code(user.id, challenge)
-
-    conn =
-      post(conn, "/api/extension/token", %{
-        "code" => code,
-        "code_verifier" => verifier <> "wrong"
-      })
-
-    assert response(conn, 401) == "Invalid or expired authorization code"
+  test "exchanges an Authx code for a revocable API key" do
+    stub_exchange(
+      {:ok, %{"sub" => "authx-extension-sub", "email" => @email, "email_verified" => true},
+       %{"access_token" => "authx-access-token"}}
+    )
 
     conn =
       build_conn()
       |> put_req_header("content-type", "application/json")
-      |> post("/api/extension/token", %{
-        "code" => code,
-        "code_verifier" => verifier
-      })
+      |> post("/api/extension/authx", authx_payload())
 
     assert %{
              "token" => api_key,
              "key_id" => key_id,
              "user" => %{"email" => @email}
            } = json_response(conn, 200)
+
+    assert {:ok, identity} =
+             UserIdentity
+             |> Ash.Query.filter(uid == "authx-extension-sub" and strategy == "authx")
+             |> Ash.read_one(domain: Eim.Accounts, authorize?: false)
+
+    assert to_string(identity.strategy) == "authx"
 
     conn =
       build_conn()
@@ -85,66 +67,68 @@ defmodule EimWeb.ExtensionAuthControllerTest do
       |> get("/api/extension/me")
 
     assert response(conn, 401) == "Unauthorized"
+  end
+
+  test "rejects a redirect URI that is not registered for the extension client" do
+    stub_exchange(
+      {:ok, %{"sub" => "authx-extension-sub", "email" => @email, "email_verified" => true},
+       %{"access_token" => "authx-access-token"}}
+    )
 
     conn =
       build_conn()
       |> put_req_header("content-type", "application/json")
-      |> post("/api/extension/token", %{
-        "code" => code,
-        "code_verifier" => verifier
-      })
+      |> post(
+        "/api/extension/authx",
+        Map.put(authx_payload(), "redirect_uri", "https://evil.example.com/")
+      )
 
-    assert response(conn, 401) == "Invalid or expired authorization code"
-  end
-
-  test "rejects callback URIs outside Chrome identity callbacks", %{conn: conn} do
-    verifier = verifier()
-    challenge = ExtensionAuth.code_challenge(verifier)
-
-    url =
-      "/extension/authorize?" <>
-        URI.encode_query(%{
-          "redirect_uri" => "https://example.com/",
-          "code_challenge" => challenge,
-          "state" => verifier
-        })
-
-    conn = get(conn, url)
     assert response(conn, 400) == "Invalid extension authorization request"
   end
 
-  defp authorization_url(challenge, state) do
-    "/extension/authorize?" <>
-      URI.encode_query(%{
-        "redirect_uri" => @redirect_uri,
-        "code_challenge" => challenge,
-        "state" => state
-      })
+  test "rejects an Authx account whose email is not verified" do
+    stub_exchange(
+      {:ok, %{"sub" => "authx-extension-sub", "email" => @email, "email_verified" => false},
+       %{"access_token" => "authx-access-token"}}
+    )
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/extension/authx", authx_payload())
+
+    assert response(conn, 401) == "Authx account email is not verified"
+  end
+
+  test "rejects an invalid or expired Authx code" do
+    stub_exchange({:error, :invalid_code})
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/extension/authx", authx_payload())
+
+    assert response(conn, 401) == "Invalid or expired authorization code"
   end
 
   defp verifier do
     :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
   end
 
-  defp create_user do
-    {:ok, hashed_password} = AshAuthentication.BcryptProvider.hash("password123456")
-
-    Ash.Seed.seed!(Accounts.User, %{
-      email: @email,
-      hashed_password: hashed_password,
-      confirmed_at: DateTime.utc_now()
-    })
+  defp stub_exchange(result) do
+    Application.put_env(:eim, :extension_oidc_stub_result, result)
   end
 
-  defp sign_in_user(user) do
-    strategy = AshAuthentication.Info.strategy!(Accounts.User, :password)
-
-    {:ok, authenticated_user} =
-      AshAuthentication.Strategy.action(strategy, :sign_in, %{
-        email: user.email,
-        password: "password123456"
-      })
-
-    authenticated_user
+  defp authx_payload do
+    %{
+      "code" => "authx-code",
+      "state" => String.duplicate("s", 32),
+      "nonce" => String.duplicate("n", 32),
+      "code_verifier" => verifier(),
+      "redirect_uri" => @extension_redirect_uri
+    }
   end
+
+  defp restore_env(key, {:ok, value}), do: Application.put_env(:eim, key, value)
+  defp restore_env(key, :error), do: Application.delete_env(:eim, key)
 end

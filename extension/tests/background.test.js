@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 
 const storage = {};
+const sessionStorage = {};
 const sentMessages = [];
 let listener;
 let authFlow;
@@ -11,10 +12,14 @@ let legacyRemoved;
 
 const popupSender = { url: 'chrome-extension://test/popup.html' };
 const origins = {
-  development: 'http://localhost:4000',
+  development: 'http://localhost:4003',
   'local-production': 'https://eim.s',
   production: 'https://eim.fly.dev',
 };
+const authxOrigins = {
+  development: 'http://localhost:4000',
+};
+const extensionClientId = '00000000-0000-7000-8000-000000000004';
 
 function credentials(token) {
   return { token, keyId: `key-${token}`, email: `${token}@example.test`, expiresAt: '2030-01-01' };
@@ -52,6 +57,15 @@ beforeAll(async () => {
           for (const key of Array.isArray(keys) ? keys : [keys]) delete storage[key];
         },
       },
+      session: {
+        get: async (keys) => Object.fromEntries(
+          (Array.isArray(keys) ? keys : [keys]).map((key) => [key, sessionStorage[key]]),
+        ),
+        set: async (values) => Object.assign(sessionStorage, values),
+        remove: async (keys) => {
+          for (const key of Array.isArray(keys) ? keys : [keys]) delete sessionStorage[key];
+        },
+      },
     },
     runtime: {
       getURL: (path) => `chrome-extension://test${path}`,
@@ -77,6 +91,7 @@ beforeAll(async () => {
 beforeEach(() => {
   Bun.env.DEV = 'true';
   for (const key of Object.keys(storage)) delete storage[key];
+  for (const key of Object.keys(sessionStorage)) delete sessionStorage[key];
   sentMessages.length = 0;
   tabQuery = async () => [{ id: 1 }];
   tabSendMessage = async (id, message) => { sentMessages.push({ id, message }); };
@@ -160,10 +175,57 @@ describe('service environments', () => {
     const connecting = send({ type: 'connect-extension-account', environmentId: 'development' });
     const authorizationUrl = await started.promise;
     await send({ type: 'set-environment', id: 'local-production' });
-    callback.resolve(`https://test.chromiumapp.org/#code=code&state=${authorizationUrl.searchParams.get('state')}`);
+    callback.resolve(`https://test.chromiumapp.org/?code=code&state=${authorizationUrl.searchParams.get('state')}`);
     expect((await connecting).ok).toBe(true);
     expect(storage[`extensionCredentials:${origins.development}`].token).toBe('dev');
     expect((await send({ type: 'get-extension-account', environmentId: 'local-production' })).status).toBe('signed_out');
+  });
+
+  test('authorizes directly against Authx with PKCE, state and nonce', async () => {
+    const started = deferred();
+    const callback = deferred();
+    authFlow = ({ url }) => {
+      started.resolve(new URL(url));
+      return callback.promise;
+    };
+
+    let exchangeRequest;
+    fetchHandler = async (url, options) => {
+      expect(url.origin).toBe(origins.development);
+      expect(url.pathname).toBe('/api/extension/authx');
+      exchangeRequest = JSON.parse(options.body);
+      return jsonResponse({
+        token: 'authx', key_id: 'key-authx', expires_at: '2030-01-01',
+        user: { id: '1', email: 'authx@example.test' },
+      });
+    };
+
+    const connecting = send({ type: 'connect-extension-account', environmentId: 'development' });
+    const authorizationUrl = await started.promise;
+
+    expect(authorizationUrl.origin).toBe(authxOrigins.development);
+    expect(authorizationUrl.pathname).toBe('/oidc/authorize');
+    expect(authorizationUrl.searchParams.get('client_id')).toBe(extensionClientId);
+    expect(authorizationUrl.searchParams.get('redirect_uri')).toBe('https://test.chromiumapp.org/');
+    expect(authorizationUrl.searchParams.get('response_type')).toBe('code');
+    expect(authorizationUrl.searchParams.get('scope')).toBe('openid email');
+    expect(authorizationUrl.searchParams.get('code_challenge_method')).toBe('S256');
+    expect(authorizationUrl.searchParams.get('code_challenge')).toBeTruthy();
+    expect(authorizationUrl.searchParams.get('nonce')).toBeTruthy();
+
+    const state = authorizationUrl.searchParams.get('state');
+    callback.resolve(`https://test.chromiumapp.org/?code=code&state=${state}`);
+    expect((await connecting).ok).toBe(true);
+
+    expect(exchangeRequest).toMatchObject({
+      code: 'code',
+      state,
+      nonce: authorizationUrl.searchParams.get('nonce'),
+      redirect_uri: 'https://test.chromiumapp.org/',
+    });
+    expect(exchangeRequest.code_verifier).toBeTruthy();
+    expect(storage[`extensionCredentials:${origins.development}`].token).toBe('authx');
+    expect(Object.keys(sessionStorage)).toEqual([]);
   });
 
   test('a stale 401 does not erase a newly connected credential', async () => {
@@ -181,7 +243,7 @@ describe('service environments', () => {
       });
     };
     authFlow = async ({ url }) =>
-      `https://test.chromiumapp.org/#code=code&state=${new URL(url).searchParams.get('state')}`;
+      `https://test.chromiumapp.org/?code=code&state=${new URL(url).searchParams.get('state')}`;
 
     const checking = send({ type: 'get-extension-account', environmentId: 'development' });
     await started.promise;

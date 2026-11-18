@@ -7,6 +7,12 @@
 # General application configuration
 import Config
 
+# AshAuthentication 4.15's default adapter is the raw `Finch` module, but Assent
+# expects a module implementing `request/5`. Use Assent's Finch adapter so OIDC
+# discovery, token exchange and userinfo requests work.
+config :ash_authentication,
+  http_adapter: {Assent.HTTPAdapter.Finch, supervisor: AshAuthentication.Finch}
+
 config :ash_oban, pro?: false
 
 config :eim, Oban,
@@ -108,15 +114,6 @@ config :eim, EimWeb.Endpoint,
 config :phoenix_live_view,
   # the attribute set on all root tags. Used for Phoenix.LiveView.ColocatedCSS.
   root_tag_attribute: "phx-r"
-
-# Configure the mailer
-#
-# By default it uses the "Local" adapter which stores the emails
-# locally. You can see the emails in your browser, at "/mailbox/preview".
-#
-# For production it's recommended to configure a different adapter
-# at the `config/runtime.exs`.
-config :eim, Eim.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configure esbuild (the version is required)
 config :esbuild,

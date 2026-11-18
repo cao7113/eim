@@ -20,7 +20,26 @@ if System.get_env("PHX_SERVER") do
   config :eim, EimWeb.Endpoint, server: true
 end
 
-config :eim, EimWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+config :eim, EimWeb.Endpoint,
+  http: [
+    port:
+      String.to_integer(
+        System.get_env("PORT", if(config_env() == :dev, do: "4003", else: "4000"))
+      )
+  ]
+
+config :eim,
+  oidc_client_id: System.get_env("EIM_OIDC_CLIENT_ID", "00000000-0000-7000-8000-000000000003"),
+  oidc_issuer: System.get_env("EIM_OIDC_ISSUER", "http://localhost:4000"),
+  oidc_redirect_uri: System.get_env("EIM_OIDC_REDIRECT_URI", "http://localhost:4003/auth"),
+  extension_oidc_client_id:
+    System.get_env("EIM_EXTENSION_OIDC_CLIENT_ID", "00000000-0000-7000-8000-000000000004"),
+  extension_oidc_redirect_uris:
+    System.get_env(
+      "EIM_EXTENSION_OIDC_REDIRECT_URIS",
+      "https://mkbjhjbecifpejjljcjbadocpfiepoen.chromiumapp.org/"
+    )
+    |> String.split(",", trim: true)
 
 if config_env() == :dev do
   # Reload browser tabs when matching files change.
@@ -46,10 +65,6 @@ if config_env() == :prod do
       environment variable DATABASE_URL is missing.
       For example: ecto://USER:PASS@HOST/DATABASE
       """
-
-  if System.get_env("MAILER_LOCAL") in ~w(true 1 yes) do
-    config :swoosh, local: true
-  end
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
@@ -137,22 +152,4 @@ if config_env() == :prod do
   #       force_ssl: [hsts: true]
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.
-
-  # ## Configuring the mailer
-  #
-  # In production you need to configure the mailer to use a different adapter.
-  # Here is an example configuration for Mailgun:
-  #
-  #     config :eim, Eim.Mailer,
-  #       adapter: Swoosh.Adapters.Mailgun,
-  #       api_key: System.get_env("MAILGUN_API_KEY"),
-  #       domain: System.get_env("MAILGUN_DOMAIN")
-  #
-  # Most non-SMTP adapters require an API client. Swoosh supports Req, Hackney,
-  # and Finch out-of-the-box. This configuration is typically done at
-  # compile-time in your config/prod.exs:
-  #
-  #     config :swoosh, :api_client, Swoosh.ApiClient.Req
-  #
-  # See https://swoosh.hexdocs.pm/Swoosh.html#module-installation for details.
 end

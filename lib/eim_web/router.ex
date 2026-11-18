@@ -110,40 +110,21 @@ defmodule EimWeb.Router do
 
     get "/", PageController, :home
 
-    get "/extension/authorize", ExtensionAuthController, :authorize
     auth_routes AuthController, Eim.Accounts.User, path: "/auth"
 
     sign_out_route AuthController, "/sign-out",
       overrides: [EimWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default]
 
-    # Remove these if you'd like to use your own authentication views
-    sign_in_route register_path: "/register",
-                  reset_path: "/reset",
-                  auth_routes_prefix: "/auth",
+    sign_in_route auth_routes_prefix: "/auth",
                   layout: {EimWeb.Layouts, :auth},
                   on_mount: [{EimWeb.LiveUserAuth, :live_no_user}],
                   overrides: [EimWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default]
-
-    # Remove this if you do not want to use the reset password feature
-    reset_route auth_routes_prefix: "/auth",
-                overrides: [EimWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default]
-
-    # Remove this if you do not use the confirmation strategy
-    confirm_route Eim.Accounts.User, :confirm_new_user,
-      auth_routes_prefix: "/auth",
-      overrides: [EimWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default]
-
-    # Remove this if you do not use the magic link strategy.
-    magic_sign_in_route(Eim.Accounts.User, :magic_link,
-      auth_routes_prefix: "/auth",
-      overrides: [EimWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default]
-    )
   end
 
   scope "/api" do
     pipe_through [:api]
 
-    post "/extension/token", EimWeb.ExtensionAuthController, :exchange
+    post "/extension/authx", EimWeb.ExtensionAuthController, :authx
     get "/extension/me", EimWeb.ExtensionAuthController, :me
     delete "/extension/session", EimWeb.ExtensionAuthController, :revoke
 
@@ -172,8 +153,6 @@ defmodule EimWeb.Router do
 
   scope "/" do
     pipe_through [:browser, :admin]
-
-    forward "/mailbox/preview", EimWeb.MailboxPreview
 
     oban_dashboard("/oban",
       resolver: EimWeb.ObanResolver,

@@ -46,16 +46,24 @@ defmodule Eim.Accounts.AdminRolesTest do
     assert {bob_id, alice_id, "admin.revoked"} in events
   end
 
-  test "registration cannot grant the administrator role" do
-    changeset =
-      Ash.Changeset.for_create(User, :register_with_password, %{
-        email: "new@example.com",
-        password: "password123456",
-        password_confirmation: "password123456",
-        role: :admin
-      })
+  test "OIDC registration cannot grant the administrator role" do
+    {:ok, user} =
+      User
+      |> Ash.Changeset.for_create(
+        :register_with_authx,
+        %{
+          user_info: %{
+            "sub" => "new-authx-sub",
+            "email" => "new@example.com",
+            "role" => "admin"
+          },
+          oauth_tokens: %{}
+        },
+        authorize?: false
+      )
+      |> Ash.create(domain: Eim.Accounts, authorize?: false)
 
-    refute changeset.valid?
+    assert user.role == :user
   end
 
   test "Ash policies protect direct role, bootstrap, search and audit actions" do
@@ -172,10 +180,5 @@ defmodule Eim.Accounts.AdminRolesTest do
     assert Repo.aggregate(from(c in "audit_events"), :count) == 1
   end
 
-  defp create_user(email) do
-    {1, [%{id: id}]} =
-      Repo.insert_all("users", [%{email: email, hashed_password: "test"}], returning: [:id])
-
-    Repo.get!(User, id)
-  end
+  defp create_user(email), do: Eim.AccountsFixtures.user_fixture(email)
 end

@@ -4,7 +4,6 @@ defmodule EimWeb.EcdictLiveTest do
   import Ecto.Query
   import Phoenix.LiveViewTest
 
-  alias Eim.Accounts
   alias Eim.Dict.{Importer, Lexeme}
   alias Eim.Vocab.Entry
 
@@ -388,27 +387,11 @@ defmodule EimWeb.EcdictLiveTest do
            )
   end
 
-  defp create_user(email) do
-    {:ok, hashed_password} = AshAuthentication.BcryptProvider.hash("password123456")
-
-    Ash.Seed.seed!(Accounts.User, %{
-      email: email,
-      hashed_password: hashed_password,
-      confirmed_at: DateTime.utc_now()
-    })
-  end
+  defp create_user(email), do: Eim.AccountsFixtures.user_fixture(email)
 
   defp signed_in_conn(conn, user) do
-    strategy = AshAuthentication.Info.strategy!(Accounts.User, :password)
-
-    {:ok, signed_in_user} =
-      AshAuthentication.Strategy.action(strategy, :sign_in, %{
-        email: to_string(user.email),
-        password: "password123456"
-      })
-
     conn
     |> init_test_session(%{})
-    |> AshAuthentication.Plug.Helpers.store_in_session(signed_in_user)
+    |> AshAuthentication.Plug.Helpers.store_in_session(user)
   end
 end

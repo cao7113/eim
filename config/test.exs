@@ -29,12 +29,6 @@ config :eim, EimWeb.Endpoint,
   secret_key_base: "Ew+KH4Yr6R9+Cruvz2oj0sSihocUyx/RP/Xtqm8KucgMyHP2PhjiN4PZsjWIILmb",
   server: false
 
-# In test we don't send emails
-config :eim, Eim.Mailer, adapter: Swoosh.Adapters.Test
-
-# Disable swoosh api client as it is only required for production adapters
-config :swoosh, :api_client, false
-
 # Print only warnings and errors during test
 config :logger, level: :warning
 

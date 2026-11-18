@@ -21,9 +21,15 @@ defmodule EimWeb.AuthOverrides do
     set :text_class, "text-center text-2xl font-semibold tracking-tight text-lime-800"
   end
 
-  override Components.Password do
-    set :toggler_class,
-        "flex-none px-2 text-sm text-lime-800 hover:text-lime-900 first:pl-0 last:pr-0"
+  override Components.OAuth2 do
+    set :root_class, "w-full"
+
+    set :link_class,
+        "mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-lime-300 px-4 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-lime-300/40 transition hover:-translate-y-0.5 hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-700"
+
+    # The built-in OIDC icon has a malformed viewBox and renders as a clipped
+    # glyph; the text-only button is cleaner and on-brand.
+    set :icon_class, "hidden"
   end
 
   override Components.Password.Input do

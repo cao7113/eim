@@ -29,13 +29,11 @@ defmodule Eim.Accounts.AdminRolesConcurrencyTest do
         %{
           id: Ecto.UUID.dump!(alice_id),
           email: "alice-#{test_id}@example.com",
-          hashed_password: "test",
           role: "admin"
         },
         %{
           id: Ecto.UUID.dump!(bob_id),
           email: "bob-#{test_id}@example.com",
-          hashed_password: "test",
           role: "admin"
         }
       ])

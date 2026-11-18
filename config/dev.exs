@@ -56,7 +56,7 @@ config :eim, EimWeb.Endpoint,
 # configured to run both http and https servers on
 # different ports.
 
-# Enable dev routes for dashboard and mailbox
+# Enable dev routes for the live dashboard
 config :eim, dev_routes: true, token_signing_secret: "ygsx9xXmnmF9ZwlrAtfdxKnd3sCbyc2O"
 
 # Do not include metadata nor timestamps in development logs
@@ -77,7 +77,5 @@ config :phoenix_live_view,
   # Enable helpful, but potentially expensive runtime checks
   enable_expensive_runtime_checks: true
 
-# Disable swoosh api client as it is only required for production adapters.
-config :swoosh, :api_client, false
-
-config :swoosh, local: true
+# Authx's local dev server uses 4007, so Eim must use a different port.
+config :live_debugger, port: 4008

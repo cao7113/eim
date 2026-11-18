@@ -3,7 +3,7 @@ defmodule EimWeb.AdminDashboardTest do
 
   import Phoenix.LiveViewTest
 
-  alias Eim.Accounts.{Admins, User}
+  alias Eim.Accounts.Admins
 
   setup do
     conf = %{Oban.config() | testing: :disabled}
@@ -66,7 +66,6 @@ defmodule EimWeb.AdminDashboardTest do
 
     assert html =~ ~s(id="admin-dashboard-link")
     assert html =~ ~s(id="oban-dashboard-link")
-    assert html =~ ~s(id="mailbox-preview-link")
   end
 
   test "revocation closes connected administrator dashboards" do
@@ -104,27 +103,7 @@ defmodule EimWeb.AdminDashboardTest do
     assert_redirect(oban_view, "/")
   end
 
-  defp create_user(email) do
-    {:ok, password} = AshAuthentication.BcryptProvider.hash("password123456")
+  defp create_user(email), do: Eim.AccountsFixtures.user_fixture(email)
 
-    Ash.Seed.seed!(User, %{
-      email: email,
-      hashed_password: password,
-      confirmed_at: DateTime.utc_now()
-    })
-  end
-
-  defp signed_in_conn(user) do
-    strategy = AshAuthentication.Info.strategy!(User, :password)
-
-    {:ok, authenticated} =
-      AshAuthentication.Strategy.action(strategy, :sign_in, %{
-        email: user.email,
-        password: "password123456"
-      })
-
-    build_conn()
-    |> init_test_session(%{})
-    |> AshAuthentication.Plug.Helpers.store_in_session(authenticated)
-  end
+  defp signed_in_conn(user), do: Eim.AccountsFixtures.signed_in_conn(user)
 end

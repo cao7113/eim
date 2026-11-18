@@ -146,14 +146,14 @@ const maxTextLength = 500;
 
 async function withEnvironment<T>(
   message: object,
-  operation: (origin: string) => Promise<T>,
+  operation: (origin: string, environment: Environment) => Promise<T>,
 ): Promise<T> {
   const environment = await getEnvironment();
   if (
     'environmentId' in message &&
     message.environmentId !== environment.id
   ) throw new Error('Service environment changed');
-  return operation(environment.origin);
+  return operation(environment.origin, environment);
 }
 
 async function getEnvironment(): Promise<Environment> {
@@ -397,30 +397,81 @@ async function getExtensionAccount(apiBaseUrl: string): Promise<ExtensionAccount
   }
 }
 
-async function connectExtensionAccount(apiBaseUrl: string): Promise<ExtensionAuthResult> {
+type PendingAuthRequest = {
+  verifier: string;
+  state: string;
+  nonce: string;
+  redirectUri: string;
+};
+
+const authRequestKey = (origin: string) => `extensionAuthRequest:${origin}`;
+
+async function saveAuthRequest(origin: string, request: PendingAuthRequest): Promise<void> {
+  await browser.storage.session.set({ [authRequestKey(origin)]: request });
+}
+
+async function readAuthRequest(origin: string): Promise<PendingAuthRequest> {
+  const key = authRequestKey(origin);
+  const stored: unknown = (await browser.storage.session.get(key))[key];
+  if (
+    typeof stored !== 'object' || stored === null ||
+    !('verifier' in stored) || typeof stored.verifier !== 'string' ||
+    !('state' in stored) || typeof stored.state !== 'string' ||
+    !('nonce' in stored) || typeof stored.nonce !== 'string' ||
+    !('redirectUri' in stored) || typeof stored.redirectUri !== 'string'
+  ) throw new Error('Missing or invalid pending Authx request');
+  return stored as PendingAuthRequest;
+}
+
+async function removeAuthRequest(origin: string): Promise<void> {
+  await browser.storage.session.remove(authRequestKey(origin));
+}
+
+async function connectExtensionAccount(
+  apiBaseUrl: string,
+  environment: Environment,
+): Promise<ExtensionAuthResult> {
   if (!(await trustedStorageReady)) {
+    return { ok: false, error: 'unavailable' };
+  }
+
+  const { authxIssuer, oidcClientId } = environment;
+  if (!authxIssuer || !oidcClientId) {
+    console.error('Authx OIDC is not configured for this environment');
     return { ok: false, error: 'unavailable' };
   }
 
   const verifier = randomToken(32);
   const challenge = await createCodeChallenge(verifier);
   const state = randomToken(32);
+  const nonce = randomToken(32);
   const redirectUri = browser.identity.getRedirectURL();
-  const authorizationUrl = new URL('/extension/authorize', apiBaseUrl);
+
+  await saveAuthRequest(apiBaseUrl, { verifier, state, nonce, redirectUri });
+
+  const authorizationUrl = new URL('/oidc/authorize', authxIssuer);
+  authorizationUrl.searchParams.set('client_id', oidcClientId);
   authorizationUrl.searchParams.set('redirect_uri', redirectUri);
-  authorizationUrl.searchParams.set('code_challenge', challenge);
+  authorizationUrl.searchParams.set('response_type', 'code');
+  authorizationUrl.searchParams.set('scope', 'openid email');
   authorizationUrl.searchParams.set('state', state);
+  authorizationUrl.searchParams.set('nonce', nonce);
+  authorizationUrl.searchParams.set('code_challenge', challenge);
+  authorizationUrl.searchParams.set('code_challenge_method', 'S256');
 
   const callbackUrl = await browser.identity.launchWebAuthFlow({
     url: authorizationUrl.toString(),
     interactive: true,
   });
 
-  if (!callbackUrl) return { ok: false, error: 'failed' };
+  if (!callbackUrl) {
+    await removeAuthRequest(apiBaseUrl);
+    return { ok: false, error: 'failed' };
+  }
 
   const callback = new URL(callbackUrl);
   const expectedCallback = new URL(redirectUri);
-  const params = new URLSearchParams(callback.hash.slice(1));
+  const params = callback.searchParams;
   const code = params.get('code');
 
   if (
@@ -430,10 +481,20 @@ async function connectExtensionAccount(apiBaseUrl: string): Promise<ExtensionAut
     !code
   ) {
     console.error('Extension authorization callback did not match the request');
+    await removeAuthRequest(apiBaseUrl);
     return { ok: false, error: 'failed' };
   }
 
-  return exchangeAuthorizationCode(apiBaseUrl, code, verifier);
+  // The service worker may be recycled while the auth window is open, so keep
+  // the request in session storage and verify it still matches what we sent.
+  const pending = await readAuthRequest(apiBaseUrl);
+  if (pending.state !== state || pending.nonce !== nonce || pending.verifier !== verifier) {
+    console.error('Pending Authx request changed while authorization was in progress');
+    await removeAuthRequest(apiBaseUrl);
+    return { ok: false, error: 'failed' };
+  }
+
+  return exchangeAuthxCode(apiBaseUrl, { code, state, nonce, verifier, redirectUri });
 }
 
   async function getVocabEntryStatus(apiBaseUrl: string, entry: DictionaryEntry): Promise<VocabEntryStatus> {
@@ -633,20 +694,67 @@ async function connectExtensionAccount(apiBaseUrl: string): Promise<ExtensionAut
     const body: unknown = await response.json();
     if (!isTokenResponse(body)) return { ok: false, error: 'failed' };
 
-    await updateCredentials(apiBaseUrl, () => browser.storage.local.set({
-      [credentialsKey(apiBaseUrl)]: {
-        token: body.token,
-        keyId: body.key_id,
-        email: body.user.email,
-        expiresAt: body.expires_at,
-      },
-    }));
-
-    return { ok: true, account: { status: 'signed_in', email: body.user.email } };
+    return storeTokenResponse(apiBaseUrl, body);
   } catch (error) {
     console.error('Unable to exchange extension authorization code:', error);
     return { ok: false, error: 'unavailable' };
   }
+}
+
+async function exchangeAuthxCode(
+  apiBaseUrl: string,
+  request: { code: string; state: string; nonce: string; verifier: string; redirectUri: string },
+): Promise<ExtensionAuthResult> {
+  if (!(await trustedStorageReady)) {
+    return { ok: false, error: 'unavailable' };
+  }
+
+  try {
+    const response = await fetch(new URL('/api/extension/authx', apiBaseUrl), {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: request.code,
+        state: request.state,
+        nonce: request.nonce,
+        code_verifier: request.verifier,
+        redirect_uri: request.redirectUri,
+      }),
+      redirect: 'error',
+      signal: AbortSignal.timeout(5_000),
+    });
+
+    if (!response.ok) {
+      console.error('Extension Authx exchange failed:', response.status);
+      return { ok: false, error: 'failed' };
+    }
+
+    const body: unknown = await response.json();
+    if (!isTokenResponse(body)) return { ok: false, error: 'failed' };
+
+    return storeTokenResponse(apiBaseUrl, body);
+  } catch (error) {
+    console.error('Unable to exchange extension Authx code:', error);
+    return { ok: false, error: 'unavailable' };
+  } finally {
+    await removeAuthRequest(apiBaseUrl).catch(() => undefined);
+  }
+}
+
+async function storeTokenResponse(
+  apiBaseUrl: string,
+  body: { token: string; key_id: string; expires_at: string; user: { id: string; email: string } },
+): Promise<ExtensionAuthResult> {
+  await updateCredentials(apiBaseUrl, () => browser.storage.local.set({
+    [credentialsKey(apiBaseUrl)]: {
+      token: body.token,
+      keyId: body.key_id,
+      email: body.user.email,
+      expiresAt: body.expires_at,
+    },
+  }));
+
+  return { ok: true, account: { status: 'signed_in', email: body.user.email } };
 }
 
 async function disconnectExtensionAccount(apiBaseUrl: string): Promise<ExtensionActionResult> {

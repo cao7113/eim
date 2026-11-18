@@ -7,6 +7,7 @@ defmodule Eim.Accounts do
 
   resources do
     resource Eim.Accounts.User
+    resource Eim.Accounts.UserIdentity
     resource Eim.Accounts.ApiKey
     resource Eim.Accounts.Token
   end

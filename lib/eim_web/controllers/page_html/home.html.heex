@@ -19,7 +19,7 @@
         </p>
         <div class="mt-9 flex flex-col gap-3 sm:flex-row">
           <a
-            href={if @current_user, do: ~p"/learn/vocab", else: ~p"/register"}
+            href={if @current_user, do: ~p"/learn/vocab", else: ~p"/auth/user/authx"}
             class="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-slate-950/10 transition hover:-translate-y-0.5 hover:bg-lime-800"
           >
             {if @current_user, do: "Open Vocabulary", else: "Start learning"}
@@ -174,10 +174,10 @@
         </p>
       </div>
       <a
-        href={if @current_user, do: ~p"/learn/vocab", else: ~p"/register"}
+        href={if @current_user, do: ~p"/learn/vocab", else: ~p"/auth/user/authx"}
         class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-lime-300 px-5 py-3.5 text-sm font-semibold text-slate-950 transition hover:-translate-y-0.5 hover:bg-lime-200"
       >
-        {if @current_user, do: "Go to your vocabulary", else: "Create your account"}
+        {if @current_user, do: "Go to your vocabulary", else: "Sign in with Authx"}
         <.icon name="hero-arrow-right" class="size-4" />
       </a>
     </div>
