@@ -1,4 +1,4 @@
-defmodule EimWeb.AdminDashboardAuth do
+defmodule EimWeb.AdminAuth do
   import Phoenix.LiveView
 
   alias Eim.Accounts.Admins

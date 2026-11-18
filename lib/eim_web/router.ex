@@ -120,6 +120,7 @@ defmodule EimWeb.Router do
     sign_in_route register_path: "/register",
                   reset_path: "/reset",
                   auth_routes_prefix: "/auth",
+                  layout: {EimWeb.Layouts, :auth},
                   on_mount: [{EimWeb.LiveUserAuth, :live_no_user}],
                   overrides: [EimWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default]
 
@@ -176,13 +177,13 @@ defmodule EimWeb.Router do
 
     oban_dashboard("/oban",
       resolver: EimWeb.ObanResolver,
-      on_mount: [{EimWeb.AdminDashboardAuth, :oban}]
+      on_mount: [{EimWeb.AdminAuth, :oban}]
     )
 
     ash_admin "/admin",
       on_mount: [
         AshAuthentication.Phoenix.LiveSession,
-        {EimWeb.AdminDashboardAuth, :ash_admin}
+        {EimWeb.AdminAuth, :ash_admin}
       ],
       session: [{AshAuthentication.Phoenix.LiveSession, :generate_session, [nil, []]}]
   end
