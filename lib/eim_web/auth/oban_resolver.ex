@@ -1,4 +1,4 @@
-defmodule EimWeb.ObanResolver do
+defmodule EimWeb.Auth.ObanResolver do
   @behaviour Oban.Web.Resolver
 
   @impl true
@@ -7,7 +7,7 @@ defmodule EimWeb.ObanResolver do
 
   @impl true
   def resolve_access(%{id: id}) do
-    if Eim.Accounts.Admins.admin?(id), do: :all, else: {:forbidden, "/"}
+    if Eim.Admins.admin?(id), do: :all, else: {:forbidden, "/"}
   end
 
   def resolve_access(_), do: {:forbidden, "/"}

@@ -1,5 +1,6 @@
 alias Eim.Accounts
-alias Eim.Accounts.Admins
+alias Eim.Admins
+alias Eim.Ops
 
 alias Eim.Dict
 alias Eim.Vocab

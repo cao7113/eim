@@ -1,4 +1,4 @@
-# Eim 浏览器扩展
+# Eim Collector 浏览器扩展
 
 ## 开发和环境
 
@@ -22,8 +22,7 @@
 先按 Eim 文档登记 Authx 本地生产客户端，再构建：
 
 ```sh
-WXT_UNPACKED=1 \
-WXT_LOCAL_PRODUCTION_OIDC_CLIENT_ID=<extension client id> \
+WXT_UNPACKED=1 WXT_LOCAL_PRODUCTION_OIDC_CLIENT_ID=xxx \
 bun run build
 ```
 
@@ -31,7 +30,7 @@ bun run build
 `.output/chrome-mv3`。`WXT_UNPACKED=1` 会带上固定 manifest `key`，保证扩展 ID
 与 Authx 登记的回调一致。
 
-正式商店构建不要带 `WXT_UNPACKED=1`。
+正式商店构建不要带 `WXT_UNPACKED=1`!!!
 
 ## 检查
 

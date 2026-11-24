@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount } from "svelte";
   import type {
     DictionaryEntry,
     ExtensionAuthResult,
@@ -7,45 +7,47 @@
     LookupResponse,
     VocabEntryActionResult,
     VocabEntryStatus,
-  } from '../../shared/dictionary';
-  import type { Environment } from '../../shared/environments';
+  } from "../../shared/dictionary";
+  import type { Environment } from "../../shared/environments";
 
   let root: HTMLElement;
   let lookupEnabled = $state(true);
   let visible = $state(false);
   let x = $state(0);
   let y = $state(0);
-  let text = $state('');
+  let text = $state("");
   let entry = $state<DictionaryEntry | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
-  let vocabStatus = $state<VocabEntryStatus>({ status: 'checking' });
+  let vocabStatus = $state<VocabEntryStatus>({ status: "checking" });
   let vocabBusy = $state(false);
   let noteExpanded = $state(false);
-  let note = $state('');
-  let vocabError = $state('');
+  let note = $state("");
+  let vocabError = $state("");
   let requestId = 0;
   let vocabActionId = 0;
-  let environmentId: Environment['id'] | null = null;
+  let environmentId: Environment["id"] | null = null;
   let environmentChanged = $state(false);
 
   const maxTextLength = 500;
   const maxNoteLength = 2000;
 
   onMount(() => {
-    void browser.runtime.sendMessage({ type: 'get-lookup-setting' })
+    void browser.runtime
+      .sendMessage({ type: "get-lookup-setting" })
       .then((settings: { enabled: boolean }) => {
         lookupEnabled = settings.enabled;
       })
       .catch((reason: unknown) => {
-        console.error('Unable to load lookup setting:', reason);
+        console.error("Unable to load lookup setting:", reason);
       });
 
     const onSettingsChanged = (message: unknown) => {
       if (
-        typeof message === 'object' &&
+        typeof message === "object" &&
         message !== null &&
-        (message as Record<string, unknown>).type === 'service-environment-changed'
+        (message as Record<string, unknown>).type ===
+          "service-environment-changed"
       ) {
         if (visible && entry && note.trim()) {
           requestId += 1;
@@ -59,10 +61,11 @@
         return;
       }
       if (
-        typeof message === 'object' &&
+        typeof message === "object" &&
         message !== null &&
-        (message as Record<string, unknown>).type === 'lookup-setting-changed' &&
-        typeof (message as Record<string, unknown>).enabled === 'boolean'
+        (message as Record<string, unknown>).type ===
+          "lookup-setting-changed" &&
+        typeof (message as Record<string, unknown>).enabled === "boolean"
       ) {
         lookupEnabled = (message as { enabled: boolean }).enabled;
         if (!lookupEnabled) closePopup();
@@ -96,7 +99,7 @@
     if (e.composedPath().includes(root)) return;
 
     const sel = window.getSelection();
-    const selected = sel?.toString().trim() ?? '';
+    const selected = sel?.toString().trim() ?? "";
     if (!selected || !sel || sel.rangeCount === 0) {
       closePopup();
       return;
@@ -113,15 +116,15 @@
     positionPopup(rect);
     entry = null;
     error = null;
-    vocabStatus = { status: 'checking' };
-    vocabError = '';
-    note = '';
+    vocabStatus = { status: "checking" };
+    vocabError = "";
+    note = "";
     noteExpanded = false;
     environmentChanged = false;
     visible = true;
 
     if (selected.length > maxTextLength) {
-      error = '选中内容过长，请缩短后重试。';
+      error = "选中内容过长，请缩短后重试。";
       loading = false;
       return;
     }
@@ -129,13 +132,15 @@
     loading = true;
 
     try {
-      const environmentResult = await browser.runtime.sendMessage({ type: 'get-environment' }) as
-        { environment: Environment } | { error: string };
+      const environmentResult = (await browser.runtime.sendMessage({
+        type: "get-environment",
+      })) as { environment: Environment } | { error: string };
       if (currentRequestId !== requestId) return;
-      if (!('environment' in environmentResult)) throw new Error('Environment unavailable');
+      if (!("environment" in environmentResult))
+        throw new Error("Environment unavailable");
       environmentId = environmentResult.environment.id;
       const response = (await browser.runtime.sendMessage({
-        type: 'lookup',
+        type: "lookup",
         text: selected,
         environmentId,
       })) as LookupResponse;
@@ -144,16 +149,16 @@
 
       if (response.ok) {
         entry = response.entry;
-        if (response.entry.match !== 'miss') {
+        if (response.entry.match !== "miss") {
           void refreshVocabStatus(response.entry, currentRequestId);
         }
       } else {
         error = errorMessage(response.error);
       }
     } catch (reason) {
-      console.error('Unable to request dictionary lookup:', reason);
+      console.error("Unable to request dictionary lookup:", reason);
       if (currentRequestId === requestId) {
-        error = '暂时无法连接词典服务。';
+        error = "暂时无法连接词典服务。";
       }
     } finally {
       if (currentRequestId === requestId) {
@@ -162,19 +167,22 @@
     }
   }
 
-  async function refreshVocabStatus(currentEntry: DictionaryEntry, currentRequestId = requestId) {
-    vocabStatus = { status: 'checking' };
+  async function refreshVocabStatus(
+    currentEntry: DictionaryEntry,
+    currentRequestId = requestId,
+  ) {
+    vocabStatus = { status: "checking" };
 
     try {
       const result = (await browser.runtime.sendMessage({
-        type: 'get-vocab-entry-status',
+        type: "get-vocab-entry-status",
         entry: currentEntry,
         environmentId,
       })) as VocabEntryStatus;
       if (currentRequestId === requestId) vocabStatus = result;
     } catch (reason) {
-      console.error('Unable to check saved vocabulary status:', reason);
-      if (currentRequestId === requestId) vocabStatus = { status: 'offline' };
+      console.error("Unable to check saved vocabulary status:", reason);
+      if (currentRequestId === requestId) vocabStatus = { status: "offline" };
     }
   }
 
@@ -182,28 +190,29 @@
     const currentRequestId = requestId;
     const currentActionId = ++vocabActionId;
     vocabBusy = true;
-    vocabError = '';
+    vocabError = "";
 
     try {
       const result = (await browser.runtime.sendMessage({
-        type: 'connect-extension-account',
+        type: "connect-extension-account",
         environmentId,
       })) as ExtensionAuthResult;
 
-      if (currentRequestId !== requestId || currentActionId !== vocabActionId) return;
+      if (currentRequestId !== requestId || currentActionId !== vocabActionId)
+        return;
       if (!result.ok) {
         vocabError =
-          result.error === 'unavailable'
-            ? '无法连接 Eim 服务，请稍后重试。'
-            : '登录已取消或连接失败，请重试。';
+          result.error === "unavailable"
+            ? "无法连接 Eim 服务，请稍后重试。"
+            : "登录已取消或连接失败，请重试。";
         return;
       }
 
       if (entry) await refreshVocabStatus(entry, currentRequestId);
     } catch (reason) {
-      console.error('Unable to connect account from vocabulary popup:', reason);
+      console.error("Unable to connect account from vocabulary popup:", reason);
       if (currentRequestId === requestId && currentActionId === vocabActionId) {
-        vocabError = '登录连接失败，请重试。';
+        vocabError = "登录连接失败，请重试。";
       }
     } finally {
       if (currentActionId === vocabActionId) vocabBusy = false;
@@ -211,42 +220,49 @@
   }
 
   async function saveVocabEntry() {
-    if (!entry || entry.match === 'miss' || note.length > maxNoteLength || vocabBusy) return;
+    if (
+      !entry ||
+      entry.match === "miss" ||
+      note.length > maxNoteLength ||
+      vocabBusy
+    )
+      return;
 
     const currentRequestId = requestId;
     const currentActionId = ++vocabActionId;
     vocabBusy = true;
-    vocabError = '';
+    vocabError = "";
     const currentEntry = entry;
     const currentNote = note;
 
     try {
       const result = (await browser.runtime.sendMessage({
-        type: 'save-vocab-entry',
+        type: "save-vocab-entry",
         entry: currentEntry,
         note: currentNote,
         environmentId,
       })) as VocabEntryActionResult;
 
-      if (currentRequestId !== requestId || currentActionId !== vocabActionId) return;
+      if (currentRequestId !== requestId || currentActionId !== vocabActionId)
+        return;
       if (result.ok) {
         vocabStatus = {
-          status: 'saved',
+          status: "saved",
           insertedAt: result.insertedAt,
           learnUrl: result.learnUrl,
         };
-      } else if (result.error === 'signed_out') {
-        vocabStatus = { status: 'signed_out' };
-        vocabError = '登录已过期，请重新连接账号。';
-      } else if (result.error === 'unavailable') {
-        vocabError = '暂时无法连接 Eim 服务，笔记已保留，请重试。';
+      } else if (result.error === "signed_out") {
+        vocabStatus = { status: "signed_out" };
+        vocabError = "登录已过期，请重新连接账号。";
+      } else if (result.error === "unavailable") {
+        vocabError = "暂时无法连接 Eim 服务，笔记已保留，请重试。";
       } else {
-        vocabError = '收藏失败，笔记已保留，请重试。';
+        vocabError = "收藏失败，笔记已保留，请重试。";
       }
     } catch (reason) {
-      console.error('Unable to save vocabulary entry:', reason);
+      console.error("Unable to save vocabulary entry:", reason);
       if (currentRequestId === requestId && currentActionId === vocabActionId) {
-        vocabError = '收藏失败，笔记已保留，请重试。';
+        vocabError = "收藏失败，笔记已保留，请重试。";
       }
     } finally {
       if (currentActionId === vocabActionId) vocabBusy = false;
@@ -258,35 +274,39 @@
   }
 
   function onKeyDown(event: KeyboardEvent) {
-    if (event.key === 'Escape' && visible) closePopup();
+    if (event.key === "Escape" && visible) closePopup();
   }
 
   function errorMessage(reason: LookupError) {
     switch (reason) {
-      case 'too_long':
-        return '选中内容过长，请缩短后重试。';
-      case 'disabled':
-        return '划词查词已暂停。';
-      case 'unavailable':
-        return '暂时无法连接词典服务。';
-      case 'invalid_response':
-      case 'failed':
-        return '查询失败，请稍后重试。';
+      case "too_long":
+        return "选中内容过长，请缩短后重试。";
+      case "disabled":
+        return "划词查词已暂停。";
+      case "unavailable":
+        return "暂时无法连接词典服务。";
+      case "invalid_response":
+      case "failed":
+        return "查询失败，请稍后重试。";
     }
   }
 
   function collectedDate(value: string) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
-    return new Intl.DateTimeFormat('zh-CN', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
+    return new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
     }).format(date);
   }
 </script>
 
-<svelte:document onpointerdown={onPointerDown} onmouseup={onMouseUp} onkeydown={onKeyDown} />
+<svelte:document
+  onpointerdown={onPointerDown}
+  onmouseup={onMouseUp}
+  onkeydown={onKeyDown}
+/>
 <svelte:window onscroll={closePopup} />
 
 <div bind:this={root}>
@@ -301,28 +321,34 @@
     >
       <header class="eim-header">
         <div class="eim-word">{text}</div>
-        <button class="eim-close" type="button" aria-label="关闭" onclick={closePopup}>×</button>
+        <button
+          class="eim-close"
+          type="button"
+          aria-label="关闭"
+          onclick={closePopup}>×</button
+        >
       </header>
 
       {#if loading}
         <p class="eim-state">查询中…</p>
       {:else if error}
         <p class="eim-state eim-error">{error}</p>
-      {:else if entry && entry.match === 'miss'}
+      {:else if entry && entry.match === "miss"}
         <p class="eim-state">词典暂无结果</p>
       {:else if entry}
         {#if entry.lemma && entry.lemma.toLowerCase() !== entry.text.toLowerCase()}
           <div class="eim-lemma">原型：{entry.lemma}</div>
         {/if}
         {#if entry.phonetic}
-          <div class="eim-phonetic">{entry.phonetic}</div>
+          <div class="eim-phonetic">/{entry.phonetic}/</div>
         {/if}
         {#if entry.senses.length > 0}
           <ul class="eim-senses">
             {#each entry.senses as sense, index (index)}
               <li>
                 {#if sense.pos}<span class="eim-pos">{sense.pos}</span>{/if}
-                {#if sense.domain}<span class="eim-domain">{sense.domain}</span>{/if}
+                {#if sense.domain}<span class="eim-domain">{sense.domain}</span
+                  >{/if}
                 <span>{sense.zh}</span>
               </li>
             {/each}
@@ -333,25 +359,45 @@
 
         <div class="eim-vocab">
           {#if environmentChanged}
-            <label class="eim-note-label" for="eim-vocab-note">未提交的笔记</label>
-            <textarea id="eim-vocab-note" class="eim-note" bind:value={note} rows="2"></textarea>
+            <label class="eim-note-label" for="eim-vocab-note"
+              >未提交的笔记</label
+            >
+            <textarea
+              id="eim-vocab-note"
+              class="eim-note"
+              bind:value={note}
+              rows="2"></textarea>
             <p class="eim-state eim-error" role="alert">
               环境已切换，请复制笔记后重新划词。如收藏正在提交，请检查原环境。
             </p>
-          {:else if vocabStatus.status === 'checking'}
+          {:else if vocabStatus.status === "checking"}
             <p class="eim-state">检查收藏状态…</p>
-          {:else if vocabStatus.status === 'saved'}
-            <time class="eim-saved-date" role="status" datetime={vocabStatus.insertedAt}>
+          {:else if vocabStatus.status === "saved"}
+            <time
+              class="eim-saved-date"
+              role="status"
+              datetime={vocabStatus.insertedAt}
+            >
               已收录于 {collectedDate(vocabStatus.insertedAt)}
             </time>
-            <a class="eim-study-link" href={vocabStatus.learnUrl} target="_blank" rel="noopener noreferrer">
+            <a
+              class="eim-study-link"
+              href={vocabStatus.learnUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               在学习中心查看 <span aria-hidden="true">↗</span>
             </a>
-          {:else if vocabStatus.status === 'signed_out'}
-            <button class="eim-action" type="button" disabled={vocabBusy} onclick={connectToSave}>
-              {vocabBusy ? '连接中…' : '登录后收藏'}
+          {:else if vocabStatus.status === "signed_out"}
+            <button
+              class="eim-action"
+              type="button"
+              disabled={vocabBusy}
+              onclick={connectToSave}
+            >
+              {vocabBusy ? "连接中…" : "登录后收藏"}
             </button>
-          {:else if vocabStatus.status === 'offline'}
+          {:else if vocabStatus.status === "offline"}
             <button
               class="eim-action eim-secondary"
               type="button"
@@ -370,22 +416,30 @@
                 添加笔记（可选）
               </button>
             {:else}
-              <label class="eim-note-label" for="eim-vocab-note">笔记（可选）</label>
+              <label class="eim-note-label" for="eim-vocab-note"
+                >笔记（可选）</label
+              >
               <textarea
                 id="eim-vocab-note"
                 class="eim-note"
                 bind:value={note}
                 maxlength={maxNoteLength}
                 rows="2"
-                placeholder="写下这个词在当前语境中的含义…"
-              ></textarea>
+                placeholder="写下这个词在当前语境中的含义…"></textarea>
               <div class="eim-note-count">{note.length}/{maxNoteLength}</div>
             {/if}
-            <button class="eim-action" type="button" disabled={vocabBusy} onclick={saveVocabEntry}>
-              {vocabBusy ? '收藏中…' : '收藏'}
+            <button
+              class="eim-action"
+              type="button"
+              disabled={vocabBusy}
+              onclick={saveVocabEntry}
+            >
+              {vocabBusy ? "收藏中…" : "收藏"}
             </button>
           {/if}
-          {#if vocabError}<p class="eim-state eim-error" role="alert">{vocabError}</p>{/if}
+          {#if vocabError}<p class="eim-state eim-error" role="alert">
+              {vocabError}
+            </p>{/if}
         </div>
       {/if}
     </section>

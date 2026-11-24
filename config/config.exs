@@ -14,6 +14,7 @@ config :ash_authentication,
   http_adapter: {Assent.HTTPAdapter.Finch, supervisor: AshAuthentication.Finch}
 
 config :ash_oban, pro?: false
+config :ash_admin, :actor_plug, EimWeb.Auth.AdminActorPlug
 
 config :eim, Oban,
   engine: Oban.Engines.Basic,
@@ -97,7 +98,7 @@ config :spark,
 config :eim,
   ecto_repos: [Eim.Repo],
   generators: [timestamp_type: :utc_datetime],
-  ash_domains: [Eim.Vocab, Eim.Dict, Eim.Accounts, Eim.Audit]
+  ash_domains: [Eim.Vocab, Eim.Dict, Eim.Accounts, Eim.Admins.Domain, Eim.Audit]
 
 # Configure the endpoint
 config :eim, EimWeb.Endpoint,

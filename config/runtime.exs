@@ -28,9 +28,16 @@ config :eim, EimWeb.Endpoint,
       )
   ]
 
+oidc_issuer = System.get_env("EIM_OIDC_ISSUER", "http://localhost:4000")
+
 config :eim,
   oidc_client_id: System.get_env("EIM_OIDC_CLIENT_ID", "00000000-0000-7000-8000-000000000003"),
-  oidc_issuer: System.get_env("EIM_OIDC_ISSUER", "http://localhost:4000"),
+  oidc_issuer: oidc_issuer,
+  oidc_authorization_url:
+    System.get_env(
+      "EIM_OIDC_AUTHORIZATION_URL",
+      "#{String.trim_trailing(oidc_issuer, "/")}/settings/apps"
+    ),
   oidc_redirect_uri: System.get_env("EIM_OIDC_REDIRECT_URI", "http://localhost:4003/auth"),
   extension_oidc_client_id:
     System.get_env("EIM_EXTENSION_OIDC_CLIENT_ID", "00000000-0000-7000-8000-000000000004"),
@@ -114,6 +121,7 @@ if config_env() == :prod do
       )
 
   config :eim,
+    master_email: System.get_env("MASTER_EMAIL"),
     token_signing_secret:
       System.get_env("TOKEN_SIGNING_SECRET") ||
         raise("""

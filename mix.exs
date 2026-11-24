@@ -103,7 +103,8 @@ defmodule Eim.MixProject do
   # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
-      "dev.setup": ["ecto.setup", "dev.seed"],
+      # "dev.admin"
+      "dev.setup": ["ecto.setup"],
       "dev.reset": ["ecto.drop --force-drop", "dev.setup"],
       setup: ["deps.get", "ash.setup", "assets.setup", "assets.build"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],

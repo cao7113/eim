@@ -1,4 +1,4 @@
-defmodule EimWeb.LiveUserAuth do
+defmodule EimWeb.Auth.LiveUserAuth do
   @moduledoc """
   Helpers for authenticating users in LiveViews.
   """
@@ -8,7 +8,7 @@ defmodule EimWeb.LiveUserAuth do
 
   # This is used for nested liveviews to fetch the current user.
   # To use, place the following at the top of that liveview:
-  # on_mount {EimWeb.LiveUserAuth, :current_user}
+  # on_mount {EimWeb.Auth.LiveUserAuth, :current_user}
   def on_mount(:current_user, _params, session, socket) do
     {:cont, AshAuthentication.Phoenix.LiveSession.assign_new_resources(socket, session)}
   end
@@ -26,16 +26,6 @@ defmodule EimWeb.LiveUserAuth do
       {:cont, socket}
     else
       {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/sign-in")}
-    end
-  end
-
-  def on_mount(:live_admin_required, _params, _session, socket) do
-    user = socket.assigns[:current_user]
-
-    if user && Eim.Accounts.Admins.admin?(user.id) do
-      {:cont, socket}
-    else
-      {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/")}
     end
   end
 

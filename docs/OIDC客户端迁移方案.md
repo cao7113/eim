@@ -262,19 +262,6 @@ config :ash_authentication,
 - 数据库列：`users.hashed_password`、`users.confirmed_at`。
 - 数据库表：`extension_auth_codes`。
 
-### 4.5 迁移文件
-
-当前有效的认证相关迁移：
-
-| 迁移 | 作用 |
-|---|---|
-| `20261118082532_add_authx_oidc_identity` | 创建 `user_identities` 表与 `(strategy, uid)` 唯一索引 |
-| `20261118085404_remove_local_auth_columns` | 删除 `users.hashed_password`、`users.confirmed_at` |
-| `20261118090500_drop_extension_auth_codes` | 删除 `extension_auth_codes` |
-
-> `mix ash.codegen` 可能重复生成已存在的 `vocab_entries` 建表，生成后需人工
-> 检查并移除该段。
-
 ---
 
 ## 5. 配置与部署
@@ -533,14 +520,14 @@ bun run build
 
 ```elixir
 Authx.Ops.ensure_client(
-  "<developer email>",
-  "Eim local production web",
+  "admin@authx.s",
+  "Eim Web",
   ["https://eim.s/auth/user/authx/callback"]
 )
 
 Authx.Ops.ensure_client(
-  "<developer email>",
-  "Eim browser extension local production",
+  "admin@authx.s",
+  "Eim browser extension",
   ["https://mkbjhjbecifpejjljcjbadocpfiepoen.chromiumapp.org/"]
 )
 ```
@@ -551,9 +538,9 @@ Authx.Ops.ensure_client(
 
 ```text
 EIM_OIDC_ISSUER=https://authx.s
-EIM_OIDC_CLIENT_ID=<web client id>
+EIM_OIDC_CLIENT_ID=01a1eefa-5d7d-7e51-ad60-9e5ef4a0e7b6
 EIM_OIDC_REDIRECT_URI=https://eim.s/auth
-EIM_EXTENSION_OIDC_CLIENT_ID=<extension client id>
+EIM_EXTENSION_OIDC_CLIENT_ID=01a1eefa-8367-7a43-a6e3-29d58e1ae712
 EIM_EXTENSION_OIDC_REDIRECT_URIS=https://mkbjhjbecifpejjljcjbadocpfiepoen.chromiumapp.org/
 ```
 
@@ -562,7 +549,7 @@ EIM_EXTENSION_OIDC_REDIRECT_URIS=https://mkbjhjbecifpejjljcjbadocpfiepoen.chromi
 ```sh
 cd extension
 WXT_UNPACKED=1 \
-WXT_LOCAL_PRODUCTION_OIDC_CLIENT_ID=<extension client id> \
+WXT_LOCAL_PRODUCTION_OIDC_CLIENT_ID=xxx \
 bun run build
 ```
 

@@ -32,7 +32,7 @@ defmodule EimWeb.Router do
   end
 
   pipeline :admin do
-    plug EimWeb.Plugs.RequireAdmin
+    plug EimWeb.Auth.RequireAdminPlug
   end
 
   defp require_vocab_actor(%{request_path: "/api/vocab/" <> _} = conn, _opts) do
@@ -67,39 +67,28 @@ defmodule EimWeb.Router do
   scope "/", EimWeb do
     pipe_through :browser
 
-    ash_authentication_live_session :admin_user_routes,
-      on_mount: [{EimWeb.LiveUserAuth, :live_admin_required}] do
-      live "/manage/users", AdminUsersLive, :index
-    end
-  end
-
-  scope "/", EimWeb do
-    pipe_through :browser
-
     ash_authentication_live_session :authenticated_routes,
-      on_mount: [{EimWeb.LiveUserAuth, :live_user_required}] do
+      on_mount: [{EimWeb.Auth.LiveUserAuth, :live_user_required}] do
       live "/learn/vocab", VocabLive, :index
 
       # in each liveview, add one of the following at the top of the module:
       #
       # If an authenticated user must be present:
-      # on_mount {EimWeb.LiveUserAuth, :live_user_required}
+      # on_mount {EimWeb.Auth.LiveUserAuth, :live_user_required}
       #
       # If an authenticated user *may* be present:
-      # on_mount {EimWeb.LiveUserAuth, :live_user_optional}
+      # on_mount {EimWeb.Auth.LiveUserAuth, :live_user_optional}
       #
       # If an authenticated user must *not* be present:
-      # on_mount {EimWeb.LiveUserAuth, :live_no_user}
+      # on_mount {EimWeb.Auth.LiveUserAuth, :live_no_user}
     end
   end
 
   scope "/", EimWeb do
     pipe_through :browser
 
-    get "/dicts/ecdict/:id/sign-in", EcdictSessionController, :sign_in
-
     ash_authentication_live_session :dictionary_routes,
-      on_mount: [{EimWeb.LiveUserAuth, :live_user_optional}] do
+      on_mount: [{EimWeb.Auth.LiveUserAuth, :live_user_optional}] do
       live "/dicts/ecdict", EcdictLive, :index
       live "/dicts/ecdict/:id", EcdictLive, :show
     end
@@ -110,15 +99,23 @@ defmodule EimWeb.Router do
 
     get "/", PageController, :home
 
+    get "/auth/sign-in-with-return", AuthController, :sign_in_with_return
+
     auth_routes AuthController, Eim.Accounts.User, path: "/auth"
 
     sign_out_route AuthController, "/sign-out",
-      overrides: [EimWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default]
+      overrides: [
+        EimWeb.Auth.AuthenticationOverrides,
+        AshAuthentication.Phoenix.Overrides.Default
+      ]
 
     sign_in_route auth_routes_prefix: "/auth",
                   layout: {EimWeb.Layouts, :auth},
-                  on_mount: [{EimWeb.LiveUserAuth, :live_no_user}],
-                  overrides: [EimWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default]
+                  on_mount: [{EimWeb.Auth.LiveUserAuth, :live_no_user}],
+                  overrides: [
+                    EimWeb.Auth.AuthenticationOverrides,
+                    AshAuthentication.Phoenix.Overrides.Default
+                  ]
   end
 
   scope "/api" do
@@ -155,14 +152,14 @@ defmodule EimWeb.Router do
     pipe_through [:browser, :admin]
 
     oban_dashboard("/oban",
-      resolver: EimWeb.ObanResolver,
-      on_mount: [{EimWeb.AdminAuth, :oban}]
+      resolver: EimWeb.Auth.ObanResolver,
+      on_mount: [{EimWeb.Auth.LiveAdminAuth, :oban}]
     )
 
     ash_admin "/admin",
       on_mount: [
         AshAuthentication.Phoenix.LiveSession,
-        {EimWeb.AdminAuth, :ash_admin}
+        {EimWeb.Auth.LiveAdminAuth, :ash_admin}
       ],
       session: [{AshAuthentication.Phoenix.LiveSession, :generate_session, [nil, []]}]
   end

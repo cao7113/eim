@@ -3,20 +3,15 @@ defmodule EimWeb.AuditAdminTest do
 
   import Phoenix.LiveViewTest
 
-  alias Eim.Accounts.Admins
+  alias Eim.Admins
   alias Eim.Audit.Event
-
-  test "the standalone audit route is not registered" do
-    assert :error = Phoenix.Router.route_info(EimWeb.Router, "GET", "/manage/audit", "localhost")
-  end
 
   test "audit events are available in Ash Admin for reading, not creating", %{conn: conn} do
     user = Eim.AccountsFixtures.user_fixture("audit-admin@example.com")
     target = Eim.AccountsFixtures.user_fixture("audit-target@example.com")
 
-    assert {:ok, _} = Admins.bootstrap(to_string(user.email))
-    assert {:ok, _} = Admins.set_role(user.id, target.id, :admin)
-    assert {:ok, _} = Admins.set_role(user.id, target.id, :user)
+    assert {:ok, _} = Admins.bootstrap_admin(user)
+    assert {:ok, _} = Admins.grant_admin(target, user)
     assert Eim.Audit in Application.fetch_env!(:eim, :ash_domains)
     assert AshAdmin.Domain.show?(Eim.Audit)
     assert Event in AshAdmin.Domain.show_resources(Eim.Audit)
@@ -43,17 +38,16 @@ defmodule EimWeb.AuditAdminTest do
     view |> element("button", "Filters") |> render_click()
 
     view
-    |> form("#cinder-collection-filter-form", filters: %{event_type: "admin.revoked"})
+    |> form("#cinder-collection-filter-form", filters: %{event_type: "admin.granted"})
     |> render_change()
 
-    assert has_element?(view, "main", "admin.revoked")
-    refute has_element?(view, "main tbody", "admin.granted")
+    assert has_element?(view, "main", "admin.granted")
 
     view
     |> form("#cinder-collection-filter-form", filters: %{event_type: "", subject_id: target.id})
     |> render_change()
 
-    assert has_element?(view, "main tbody", "admin.revoked")
+    assert has_element?(view, "main tbody", "admin.granted")
     refute has_element?(view, "main tbody tr", "bootstrap")
   end
 end

@@ -1,33 +1,49 @@
 defmodule EimWeb.ExtensionAuthController do
   use EimWeb, :controller
   require Ash.Query
+  require Logger
 
   alias Eim.Accounts
   alias Eim.Accounts.User
 
-  @api_key_lifetime_days 30
+  @api_key_lifetime_days 7
 
   def authx(conn, params) do
+    Logger.info("Authx extension authorization request started")
+
     with {:ok, request} <- build_authx_request(params),
          :ok <- validate_extension_redirect_uri(request.redirect_uri) do
       case exchange_and_register(request) do
         {:ok, credentials} ->
+          Logger.info("Authx extension authorization completed")
           json(conn, credentials)
 
         {:error, :invalid_code} ->
+          Logger.info("Authx extension authorization rejected: invalid or expired code")
           send_resp(conn, :unauthorized, "Invalid or expired authorization code")
 
         {:error, :email_not_verified} ->
+          Logger.info("Authx extension authorization rejected: email is not verified")
           send_resp(conn, :unauthorized, "Authx account email is not verified")
 
         {:error, reason} ->
+          Logger.error(
+            "Authx extension authorization failed after token exchange: #{inspect(reason)}"
+          )
+
           internal_error(conn, "connect extension", reason)
       end
     else
       {:error, :invalid_redirect_uri} ->
+        Logger.info(
+          "Authx extension authorization request rejected while validating redirect URI"
+        )
+
         send_resp(conn, :bad_request, "Invalid extension authorization request")
 
       {:error, :invalid_request} ->
+        Logger.info("Authx extension authorization request rejected during request validation")
+
         send_resp(conn, :bad_request, "Invalid extension authorization request")
     end
   end
@@ -87,29 +103,53 @@ defmodule EimWeb.ExtensionAuthController do
      }}
   end
 
-  defp build_authx_request(_params), do: {:error, :invalid_request}
+  defp build_authx_request(_params) do
+    Logger.info("Authx extension authorization rejected: request fields failed validation")
+    {:error, :invalid_request}
+  end
 
   defp validate_extension_redirect_uri(redirect_uri) do
     allowed = Application.fetch_env!(:eim, :extension_oidc_redirect_uris)
 
-    if redirect_uri in allowed,
-      do: :ok,
-      else: {:error, :invalid_redirect_uri}
+    if redirect_uri in allowed do
+      :ok
+    else
+      Logger.info("Authx extension authorization rejected: redirect URI is not allowlisted")
+      {:error, :invalid_redirect_uri}
+    end
   end
 
   defp exchange_and_register(request) do
-    with {:ok, user_info, oauth_tokens} <-
-           oidc_client().exchange(
-             request.code,
-             request.state,
-             request.nonce,
-             request.verifier,
-             request.redirect_uri
-           ),
-         :ok <- validate_user_info(user_info),
-         {:ok, user} <- register_user(user_info, oauth_tokens),
-         {:ok, credentials} <- create_api_key(user) do
-      {:ok, credentials}
+    case oidc_client().exchange(
+           request.code,
+           request.state,
+           request.nonce,
+           request.verifier,
+           request.redirect_uri
+         ) do
+      {:ok, user_info, oauth_tokens} ->
+        with :ok <- validate_user_info(user_info),
+             {:ok, user} <- register_user(user_info, oauth_tokens),
+             {:ok, credentials} <- create_api_key(user) do
+          {:ok, credentials}
+        else
+          {:error, :email_not_verified} = error ->
+            error
+
+          {:error, reason} = error ->
+            Logger.error(
+              "Authx extension user registration or API key creation failed: #{inspect(reason)}"
+            )
+
+            error
+        end
+
+      {:error, :invalid_code} = error ->
+        error
+
+      {:error, reason} ->
+        Logger.error("Authx extension OIDC exchange failed: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
@@ -118,6 +158,7 @@ defmodule EimWeb.ExtensionAuthController do
          is_binary(user_info["email"]) do
       :ok
     else
+      Logger.info("Authx extension user info rejected: missing subject/email or unverified email")
       {:error, :email_not_verified}
     end
   end
@@ -169,7 +210,6 @@ defmodule EimWeb.ExtensionAuthController do
   end
 
   defp internal_error(conn, action, reason) do
-    require Logger
     Logger.error("Unable to #{action}: #{inspect(reason)}")
     send_resp(conn, :internal_server_error, "Request failed")
   end

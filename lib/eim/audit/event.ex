@@ -28,7 +28,7 @@ defmodule Eim.Audit.Event do
 
   policies do
     policy action_type(:read) do
-      authorize_if Eim.Accounts.Checks.AdminCheck
+      authorize_if Eim.Admins.Checks.AdminCheck
     end
 
     policy action(:record) do

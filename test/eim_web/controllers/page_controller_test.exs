@@ -30,6 +30,7 @@ defmodule EimWeb.PageControllerTest do
     assert response =~ ~s(id="user-tools")
     assert response =~ ~s(id="user-tools-toggle")
     assert response =~ ~s(id="user-tools-menu")
+    assert response =~ ~s(id="oidc-authorization-link")
     assert response =~ ~s(id="sign-out-link")
     assert response =~ ~s(id="vocabulary-link")
     assert response =~ ~s(href="/learn/vocab")

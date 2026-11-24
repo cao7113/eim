@@ -202,12 +202,8 @@ defmodule EimWeb.EcdictLive do
   end
 
   defp sign_in_path(id, query, cursor, category) do
-    detail_path(id, query, cursor, category)
-    |> String.split("?", parts: 2)
-    |> case do
-      [path] -> path <> "/sign-in"
-      [path, params] -> path <> "/sign-in?" <> params
-    end
+    return_to = detail_path(id, query, cursor, category)
+    "/auth/sign-in-with-return?return_to=" <> URI.encode_www_form(return_to)
   end
 
   defp put_param(params, _key, value) when value in [nil, ""], do: params

@@ -47,7 +47,8 @@ defmodule EimWeb.EcdictLiveTest do
     assert has_element?(view, "#ecdict-definition")
     assert has_element?(view, "#ecdict-forms", "gave")
     assert has_element?(view, "#ecdict-back[href='/dicts/ecdict?q=gave']")
-    assert has_element?(view, "#ecdict-sign-in[href='/dicts/ecdict/#{lexeme.id}/sign-in?q=gave']")
+    assert has_element?(view, "#ecdict-sign-in[href*='/auth/sign-in-with-return']")
+    assert has_element?(view, "#ecdict-sign-in[href*='return_to=']")
 
     missing = Eim.Repo.one!(from l in Lexeme, where: l.word == "gave")
     {:ok, missing_view, _html} = live(build_conn(), "/dicts/ecdict/#{missing.id}")
@@ -107,7 +108,7 @@ defmodule EimWeb.EcdictLiveTest do
     view |> element("#ecdict-entries a", "give away") |> render_click()
     assert has_element?(view, "#ecdict-detail-word", "give away")
     assert has_element?(view, "#ecdict-back[href*='category=phrase']")
-    assert has_element?(view, "#ecdict-sign-in[href*='category=phrase']")
+    assert has_element?(view, "#ecdict-sign-in[href*='category%3Dphrase']")
     view |> form("#ecdict-search-form", search: %{q: "xyz"}) |> render_change()
     assert_patch(view, "/dicts/ecdict?category=phrase&q=xyz")
     assert has_element?(view, "#ecdict-empty")
@@ -158,7 +159,7 @@ defmodule EimWeb.EcdictLiveTest do
 
     view |> element("#ecdict-entries a", "address1") |> render_click()
     assert has_element?(view, "#ecdict-back[href*='category=other']")
-    assert has_element?(view, "#ecdict-sign-in[href*='category=other']")
+    assert has_element?(view, "#ecdict-sign-in[href*='category%3Dother']")
   end
 
   test "abbreviation filter retains search and detail links", %{conn: conn} do
@@ -193,7 +194,7 @@ defmodule EimWeb.EcdictLiveTest do
     view |> element("#ecdict-entries a", "A.B.G.") |> render_click()
     assert has_element?(view, "#ecdict-detail-word", "A.B.G.")
     assert has_element?(view, "#ecdict-back[href*='category=abbreviation']")
-    assert has_element?(view, "#ecdict-sign-in[href*='category=abbreviation']")
+    assert has_element?(view, "#ecdict-sign-in[href*='category%3Dabbreviation']")
   end
 
   test "list pagination works in both directions and keeps list state in detail links", %{
@@ -283,9 +284,10 @@ defmodule EimWeb.EcdictLiveTest do
 
   test "sign-in after live navigation returns to the selected entry", %{conn: conn} do
     lexeme = Eim.Repo.one!(from l in Lexeme, where: l.word == "give")
-    conn = get(conn, "/dicts/ecdict/#{lexeme.id}/sign-in?q=gave")
+    return_to = "/dicts/ecdict/#{lexeme.id}?q=gave"
+    conn = get(conn, "/auth/sign-in-with-return?return_to=#{URI.encode_www_form(return_to)}")
     assert redirected_to(conn) == "/sign-in"
-    assert get_session(conn, :return_to) == "/dicts/ecdict/#{lexeme.id}?q=gave"
+    assert get_session(conn, :return_to) == return_to
   end
 
   test "anonymous entry visits preserve the return path through sign-in", %{conn: conn} do

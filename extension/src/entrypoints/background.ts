@@ -497,185 +497,185 @@ async function connectExtensionAccount(
   return exchangeAuthxCode(apiBaseUrl, { code, state, nonce, verifier, redirectUri });
 }
 
-  async function getVocabEntryStatus(apiBaseUrl: string, entry: DictionaryEntry): Promise<VocabEntryStatus> {
-    const credentials = await getExtensionCredentials(apiBaseUrl);
-    if (credentials.status !== 'signed_in') return credentials;
+async function getVocabEntryStatus(apiBaseUrl: string, entry: DictionaryEntry): Promise<VocabEntryStatus> {
+  const credentials = await getExtensionCredentials(apiBaseUrl);
+  if (credentials.status !== 'signed_in') return credentials;
 
-    const termKey = normalizeTerm(entry.lemma || entry.text);
-    const url = new URL('/api/vocab/entries', apiBaseUrl);
-    url.searchParams.set('filter[term_key]', termKey);
+  const termKey = normalizeTerm(entry.lemma || entry.text);
+  const url = new URL('/api/vocab/entries', apiBaseUrl);
+  url.searchParams.set('filter[term_key]', termKey);
 
-    try {
-      const response = await fetch(url, {
-        headers: {
-          Accept: 'application/vnd.api+json',
-          Authorization: `Bearer ${credentials.token}`,
-        },
-        redirect: 'error',
-        signal: AbortSignal.timeout(5_000),
-      });
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/vnd.api+json',
+        Authorization: `Bearer ${credentials.token}`,
+      },
+      redirect: 'error',
+      signal: AbortSignal.timeout(5_000),
+    });
 
-      if (response.status === 401) {
-        await clearExtensionCredentials(apiBaseUrl, credentials.token);
-        return { status: 'signed_out' };
-      }
+    if (response.status === 401) {
+      await clearExtensionCredentials(apiBaseUrl, credentials.token);
+      return { status: 'signed_out' };
+    }
 
-      if (!response.ok) {
-        console.error('Vocab API returned an unsuccessful status:', response.status);
-        return { status: 'offline' };
-      }
-
-      const body: unknown = await response.json();
-      if (!isVocabIndexResponse(body)) {
-        console.error('Vocab API returned an invalid response');
-        return { status: 'offline' };
-      }
-
-      const savedEntry = body.data[0];
-      return savedEntry
-        ? {
-            status: 'saved',
-            insertedAt: savedEntry.attributes.inserted_at,
-            learnUrl: vocabLearnUrl(savedEntry.id, apiBaseUrl),
-          }
-        : { status: 'not_saved' };
-    } catch (error) {
-      console.error('Unable to check saved vocabulary status:', error);
+    if (!response.ok) {
+      console.error('Vocab API returned an unsuccessful status:', response.status);
       return { status: 'offline' };
     }
+
+    const body: unknown = await response.json();
+    if (!isVocabIndexResponse(body)) {
+      console.error('Vocab API returned an invalid response');
+      return { status: 'offline' };
+    }
+
+    const savedEntry = body.data[0];
+    return savedEntry
+      ? {
+        status: 'saved',
+        insertedAt: savedEntry.attributes.inserted_at,
+        learnUrl: vocabLearnUrl(savedEntry.id, apiBaseUrl),
+      }
+      : { status: 'not_saved' };
+  } catch (error) {
+    console.error('Unable to check saved vocabulary status:', error);
+    return { status: 'offline' };
   }
+}
 
-  async function saveVocabEntry(
-    apiBaseUrl: string,
-    entry: DictionaryEntry,
-    note: string,
-  ): Promise<VocabEntryActionResult> {
-    const credentials = await getExtensionCredentials(apiBaseUrl);
-    if (credentials.status === 'signed_out') return { ok: false, error: 'signed_out' };
-    if (credentials.status === 'offline') return { ok: false, error: 'unavailable' };
+async function saveVocabEntry(
+  apiBaseUrl: string,
+  entry: DictionaryEntry,
+  note: string,
+): Promise<VocabEntryActionResult> {
+  const credentials = await getExtensionCredentials(apiBaseUrl);
+  if (credentials.status === 'signed_out') return { ok: false, error: 'signed_out' };
+  if (credentials.status === 'offline') return { ok: false, error: 'unavailable' };
 
-    try {
-      const response = await fetch(new URL('/api/vocab/entries', apiBaseUrl), {
-        method: 'POST',
-        headers: {
-          Accept: 'application/vnd.api+json',
-          'Content-Type': 'application/vnd.api+json',
-          Authorization: `Bearer ${credentials.token}`,
-        },
-        redirect: 'error',
-        body: JSON.stringify({
-          data: {
-            type: 'vocab-entry',
-            attributes: {
-              lookup_text: entry.text,
-              lemma: entry.lemma,
-              phonetic: entry.phonetic,
-              dictionary_snapshot: entry,
-              note: note.trim() || null,
-            },
+  try {
+    const response = await fetch(new URL('/api/vocab/entries', apiBaseUrl), {
+      method: 'POST',
+      headers: {
+        Accept: 'application/vnd.api+json',
+        'Content-Type': 'application/vnd.api+json',
+        Authorization: `Bearer ${credentials.token}`,
+      },
+      redirect: 'error',
+      body: JSON.stringify({
+        data: {
+          type: 'vocab-entry',
+          attributes: {
+            lookup_text: entry.text,
+            lemma: entry.lemma,
+            phonetic: entry.phonetic,
+            dictionary_snapshot: entry,
+            note: note.trim() || null,
           },
-        }),
-        signal: AbortSignal.timeout(5_000),
-      });
+        },
+      }),
+      signal: AbortSignal.timeout(5_000),
+    });
 
-      if (response.status === 401) {
-        await clearExtensionCredentials(apiBaseUrl, credentials.token);
-        return { ok: false, error: 'signed_out' };
-      }
-
-      if (!response.ok) {
-        console.error('Vocab API save returned an unsuccessful status:', response.status);
-        return { ok: false, error: 'failed' };
-      }
-
-      const body: unknown = await response.json();
-      if (!isVocabResourceResponse(body)) {
-        console.error('Vocab API save returned an invalid response');
-        return { ok: false, error: 'failed' };
-      }
-
-      return {
-        ok: true,
-        insertedAt: body.data.attributes.inserted_at,
-        learnUrl: vocabLearnUrl(body.data.id, apiBaseUrl),
-      };
-    } catch (error) {
-      console.error('Unable to save vocabulary entry:', error);
-      return { ok: false, error: 'unavailable' };
+    if (response.status === 401) {
+      await clearExtensionCredentials(apiBaseUrl, credentials.token);
+      return { ok: false, error: 'signed_out' };
     }
-  }
 
-  async function getExtensionCredentials(origin: string): Promise<
-    | { status: 'signed_in'; token: string }
-    | { status: 'signed_out' }
-    | { status: 'offline' }
-  > {
-    const credentials = await readCredentials(origin);
-    if (!credentials) return { status: 'signed_out' };
-    return { status: 'signed_in', token: credentials.token };
-  }
-
-  function normalizeTerm(value: string): string {
-    return value.normalize('NFKC').trim().toLowerCase();
-  }
-
-  function vocabLearnUrl(id: string, baseUrl: string): string {
-    const url = new URL('/learn/vocab', baseUrl);
-    url.searchParams.set('entry_id', id);
-    return url.toString();
-  }
-
-  type VocabApiEntry = {
-    id: string;
-    attributes: { inserted_at: string };
-  };
-
-  function isVocabResourceResponse(value: unknown): value is { data: VocabApiEntry } {
-    if (typeof value !== 'object' || value === null) return false;
-    const data = (value as Record<string, unknown>).data;
-    return isVocabApiEntry(data);
-  }
-
-  function isVocabApiEntry(value: unknown): value is VocabApiEntry {
-    if (typeof value !== 'object' || value === null) return false;
-    const entry = value as Record<string, unknown>;
-    const attributes = entry.attributes;
-    return typeof entry.id === 'string' &&
-      typeof attributes === 'object' &&
-      attributes !== null &&
-      typeof (attributes as Record<string, unknown>).inserted_at === 'string';
-  }
-
-  function isVocabIndexResponse(value: unknown): value is { data: VocabApiEntry[] } {
-    if (typeof value !== 'object' || value === null) return false;
-    const data = (value as Record<string, unknown>).data;
-    return Array.isArray(data) && data.every(isVocabApiEntry);
-  }
-
-  function randomToken(byteLength: number): string {
-    const bytes = crypto.getRandomValues(new Uint8Array(byteLength));
-    return btoa(String.fromCharCode(...bytes))
-      .replaceAll('+', '-')
-      .replaceAll('/', '_')
-      .replaceAll('=', '');
-  }
-
-  async function createCodeChallenge(verifier: string): Promise<string> {
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-    return btoa(String.fromCharCode(...new Uint8Array(digest)))
-      .replaceAll('+', '-')
-      .replaceAll('/', '_')
-      .replaceAll('=', '');
-  }
-
-  async function exchangeAuthorizationCode(
-    apiBaseUrl: string,
-    code: string,
-    verifier: string,
-  ): Promise<ExtensionAuthResult> {
-    if (!(await trustedStorageReady)) {
-      return { ok: false, error: 'unavailable' };
+    if (!response.ok) {
+      console.error('Vocab API save returned an unsuccessful status:', response.status);
+      return { ok: false, error: 'failed' };
     }
+
+    const body: unknown = await response.json();
+    if (!isVocabResourceResponse(body)) {
+      console.error('Vocab API save returned an invalid response');
+      return { ok: false, error: 'failed' };
+    }
+
+    return {
+      ok: true,
+      insertedAt: body.data.attributes.inserted_at,
+      learnUrl: vocabLearnUrl(body.data.id, apiBaseUrl),
+    };
+  } catch (error) {
+    console.error('Unable to save vocabulary entry:', error);
+    return { ok: false, error: 'unavailable' };
+  }
+}
+
+async function getExtensionCredentials(origin: string): Promise<
+  | { status: 'signed_in'; token: string }
+  | { status: 'signed_out' }
+  | { status: 'offline' }
+> {
+  const credentials = await readCredentials(origin);
+  if (!credentials) return { status: 'signed_out' };
+  return { status: 'signed_in', token: credentials.token };
+}
+
+function normalizeTerm(value: string): string {
+  return value.normalize('NFKC').trim().toLowerCase();
+}
+
+function vocabLearnUrl(id: string, baseUrl: string): string {
+  const url = new URL('/learn/vocab', baseUrl);
+  url.searchParams.set('entry_id', id);
+  return url.toString();
+}
+
+type VocabApiEntry = {
+  id: string;
+  attributes: { inserted_at: string };
+};
+
+function isVocabResourceResponse(value: unknown): value is { data: VocabApiEntry } {
+  if (typeof value !== 'object' || value === null) return false;
+  const data = (value as Record<string, unknown>).data;
+  return isVocabApiEntry(data);
+}
+
+function isVocabApiEntry(value: unknown): value is VocabApiEntry {
+  if (typeof value !== 'object' || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  const attributes = entry.attributes;
+  return typeof entry.id === 'string' &&
+    typeof attributes === 'object' &&
+    attributes !== null &&
+    typeof (attributes as Record<string, unknown>).inserted_at === 'string';
+}
+
+function isVocabIndexResponse(value: unknown): value is { data: VocabApiEntry[] } {
+  if (typeof value !== 'object' || value === null) return false;
+  const data = (value as Record<string, unknown>).data;
+  return Array.isArray(data) && data.every(isVocabApiEntry);
+}
+
+function randomToken(byteLength: number): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(byteLength));
+  return btoa(String.fromCharCode(...bytes))
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replaceAll('=', '');
+}
+
+async function createCodeChallenge(verifier: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replaceAll('=', '');
+}
+
+async function exchangeAuthorizationCode(
+  apiBaseUrl: string,
+  code: string,
+  verifier: string,
+): Promise<ExtensionAuthResult> {
+  if (!(await trustedStorageReady)) {
+    return { ok: false, error: 'unavailable' };
+  }
 
   try {
     const response = await fetch(new URL('/api/extension/token', apiBaseUrl), {

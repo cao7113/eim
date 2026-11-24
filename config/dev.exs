@@ -4,6 +4,8 @@ config :ash,
   policies: [show_policy_breakdowns?: true],
   keyset_signing_secret: "sf87Uj8NBZcZE0f1iQO0TrGCmd3grZ1HiBsRZQF3mbc"
 
+config :eim, master_email: "admin@l.h"
+
 # Configure your database
 config :eim, Eim.Repo,
   username: "postgres",

@@ -1,4 +1,4 @@
-defmodule EimWeb.AuthOverrides do
+defmodule EimWeb.Auth.AuthenticationOverrides do
   use AshAuthentication.Phoenix.Overrides
 
   alias AshAuthentication.Phoenix.{Components, SignInLive}

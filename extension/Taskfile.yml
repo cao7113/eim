@@ -2,5 +2,10 @@
 # https://taskfile.dev/reference/templating/
 version: '3'
 tasks:
-  default: echo wxt
+  default: echo Eim helper with extension tasks
   run: bun run dev
+  dev: bun run dev
+  zip: bun run wxt zip
+  lp: 
+    # unpacked build for local production into .output/chrome-mv3
+    WXT_UNPACKED=1 WXT_LOCAL_PRODUCTION_OIDC_CLIENT_ID=01a1eefa-8367-7a43-a6e3-29d58e1ae712 bun run build

@@ -3,7 +3,7 @@ defmodule EimWeb.AdminDashboardTest do
 
   import Phoenix.LiveViewTest
 
-  alias Eim.Accounts.Admins
+  alias Eim.Admins
 
   setup do
     conf = %{Oban.config() | testing: :disabled}
@@ -12,10 +12,15 @@ defmodule EimWeb.AdminDashboardTest do
     :ok
   end
 
+  test "administrator access is managed through Ash Admin, not a dedicated page" do
+    assert :error =
+             Phoenix.Router.route_info(EimWeb.Router, "GET", "/manage/users", "localhost")
+  end
+
   test "dashboard routes and navigation require a current administrator", %{conn: conn} do
     admin = create_user("dashboard-admin@example.com")
     member = create_user("dashboard-member@example.com")
-    assert {:ok, _} = Admins.bootstrap(to_string(admin.email))
+    assert {:ok, _} = Admins.bootstrap_admin(admin)
 
     for path <- ["/admin", "/oban"] do
       assert redirected_to(get(conn, path)) == "/"
@@ -66,41 +71,6 @@ defmodule EimWeb.AdminDashboardTest do
 
     assert html =~ ~s(id="admin-dashboard-link")
     assert html =~ ~s(id="oban-dashboard-link")
-  end
-
-  test "revocation closes connected administrator dashboards" do
-    admin = create_user("dashboard-revoker@example.com")
-    target = create_user("dashboard-revoked@example.com")
-    assert {:ok, _} = Admins.bootstrap(to_string(admin.email))
-    assert {:ok, _} = Admins.set_role(admin.id, target.id, :admin)
-    {:ok, ash_view, _} = live(signed_in_conn(target), "/admin")
-    {:ok, oban_view, _} = live(signed_in_conn(target), "/oban")
-
-    assert {:ok, _} = Admins.set_role(admin.id, target.id, :user)
-    assert_redirect(ash_view, "/")
-    assert_redirect(oban_view, "/")
-    assert redirected_to(get(signed_in_conn(target), "/admin")) == "/"
-    assert redirected_to(get(signed_in_conn(target), "/oban")) == "/"
-    html = html_response(get(signed_in_conn(target), "/"), 200)
-    refute html =~ ~s(id="admin-tools")
-
-    assert [] =
-             html
-             |> LazyHTML.from_document()
-             |> LazyHTML.query("#current-user-admin")
-             |> LazyHTML.attribute("id")
-  end
-
-  test "signing out closes open management dashboards" do
-    admin = create_user("dashboard-signout@example.com")
-    assert {:ok, _} = Admins.bootstrap(to_string(admin.email))
-    conn = signed_in_conn(admin)
-    {:ok, ash_view, _} = live(conn, "/admin")
-    {:ok, oban_view, _} = live(conn, "/oban")
-
-    assert redirected_to(delete(conn, "/sign-out")) == "/"
-    assert_redirect(ash_view, "/")
-    assert_redirect(oban_view, "/")
   end
 
   defp create_user(email), do: Eim.AccountsFixtures.user_fixture(email)

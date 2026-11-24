@@ -68,6 +68,36 @@ defmodule EimWeb.VocabJsonApiTest do
              json_response(conn, 201)
   end
 
+  test "batch import looks up words and skips dictionary misses", %{token: token, conn: conn} do
+    fixture = Path.expand("../support/fixtures/ecdict_sample.csv", __DIR__)
+    assert %{row_count: 4} = Eim.Dict.Importer.run(fixture)
+
+    conn =
+      conn
+      |> put_req_header("accept", "application/vnd.api+json")
+      |> put_req_header("content-type", "application/vnd.api+json")
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> post("/api/vocab/entries/import", %{
+        "data" => %{
+          "entries" => [
+            %{"word" => "gave", "note" => "过去式"},
+            %{"word" => "unknownword", "note" => "稍后确认"}
+          ]
+        }
+      })
+
+    assert %{
+             "total" => 2,
+             "matched" => 1,
+             "created" => 1,
+             "skipped" => 1,
+             "results" => results
+           } = json_response(conn, 201)
+
+    assert Enum.any?(results, &(&1["word"] == "gave" and &1["status"] == "created"))
+    assert Enum.any?(results, &(&1["word"] == "unknownword" and &1["status"] == "not_found"))
+  end
+
   test "does not expose another user's saved entries", %{token: token, conn: conn} do
     conn = post_vocab_entry(conn, token, entry_attributes("gave", "give", nil))
     assert response(conn, 201)

@@ -4,6 +4,9 @@ config :eim, Oban, testing: :manual
 config :eim, token_signing_secret: "3M2JdqCyRDf0dC0CnwRn7Wj6zET/z4je"
 config :bcrypt_elixir, log_rounds: 1
 
+# `mix dev.seed` reads this through `Eim.Admins.master_email/0`.
+config :eim, master_email: "admin@l.h"
+
 config :ash,
   policies: [show_policy_breakdowns?: true],
   keyset_signing_secret: "n0S3lQqN+L+HIV4QJZ75+SW3hI0MzyD2K1W6O5KJ8UI",

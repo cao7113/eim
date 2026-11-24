@@ -1,6 +1,11 @@
 # https://taskfile.dev/docs/guide
 # https://taskfile.dev/reference/templating/
 version: '3'
+includes:
+  ext:
+    taskfile: ./extension/Taskfile.yml
+    dir: ./extension
+
 tasks:
   default: mix test
   sh: iex --erl "-kernel shell_history enabled" -S mix

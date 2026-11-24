@@ -42,7 +42,7 @@ defmodule EimWeb.Layouts do
       |> assign(:dev_routes_enabled, @dev_routes)
       |> assign(
         :admin?,
-        assigns.current_user && Eim.Accounts.Admins.admin?(assigns.current_user.id)
+        assigns.current_user && Eim.Admins.admin?(assigns.current_user)
       )
 
     ~H"""
@@ -58,46 +58,60 @@ defmodule EimWeb.Layouts do
           <span class="text-lg font-semibold tracking-tight text-slate-950">eim</span>
         </a>
         <div class="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-x-3 gap-y-2 sm:gap-6">
-          <%= if @dev_routes_enabled do %>
-            <div id="dev-tools" class="nav-tools group relative">
-              <button
-                id="dev-tools-toggle"
-                type="button"
-                aria-expanded="false"
-                aria-controls="dev-tools-menu"
-                class="flex cursor-pointer items-center gap-1 text-sm font-semibold text-slate-600 transition hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lime-700"
-              >
-                Dev
-                <.icon
-                  name="hero-chevron-down"
-                  class="size-4 transition group-hover:rotate-180 group-focus-within:rotate-180"
-                />
-              </button>
-              <div
-                id="dev-tools-menu"
-                class="nav-tools-menu absolute right-0 top-full z-50 hidden w-48 pt-2"
-              >
-                <div class="rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg shadow-slate-950/10">
-                  <a
-                    href="/dev/dashboard"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
-                  >
-                    Live Dashboard
-                  </a>
-                  <a
-                    href="/api/swaggerui"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
-                  >
-                    API / Swagger
-                  </a>
-                </div>
+          <a
+            :if={@current_user}
+            id="vocabulary-link"
+            href="/learn/vocab"
+            class="text-sm font-semibold text-slate-700 transition hover:text-slate-950"
+          >
+            Vocabulary
+          </a>
+          <a
+            id="dictionary-link"
+            href="/dicts/ecdict"
+            class="text-sm font-semibold text-slate-700 transition hover:text-slate-950"
+          >
+            Dictionary
+          </a>
+
+          <div :if={@dev_routes_enabled} id="dev-tools" class="nav-tools group relative">
+            <button
+              id="dev-tools-toggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="dev-tools-menu"
+              class="flex cursor-pointer items-center gap-1 text-sm font-semibold text-slate-600 transition hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lime-700"
+            >
+              Dev
+              <.icon
+                name="hero-chevron-down"
+                class="size-4 transition group-hover:rotate-180 group-focus-within:rotate-180"
+              />
+            </button>
+            <div
+              id="dev-tools-menu"
+              class="nav-tools-menu absolute right-0 top-full z-50 hidden w-48 pt-2"
+            >
+              <div class="rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg shadow-slate-950/10">
+                <a
+                  href="/dev/dashboard"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+                >
+                  Live Dashboard
+                </a>
+                <a
+                  href="/api/swaggerui"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+                >
+                  API / Swagger
+                </a>
               </div>
             </div>
-          <% end %>
+          </div>
           <div :if={@admin?} id="admin-tools" class="nav-tools group relative">
             <button
               id="admin-tools-toggle"
@@ -138,21 +152,6 @@ defmodule EimWeb.Layouts do
               </div>
             </div>
           </div>
-          <a
-            :if={@current_user}
-            id="vocabulary-link"
-            href="/learn/vocab"
-            class="text-sm font-semibold text-slate-700 transition hover:text-slate-950"
-          >
-            Vocabulary
-          </a>
-          <a
-            id="dictionary-link"
-            href="/dicts/ecdict"
-            class="text-sm font-semibold text-slate-700 transition hover:text-slate-950"
-          >
-            Dictionary
-          </a>
           <%= if @current_user do %>
             <div id="user-tools" class="nav-tools group relative">
               <button
@@ -182,6 +181,15 @@ defmodule EimWeb.Layouts do
                 class="nav-tools-menu absolute right-0 top-full z-50 hidden w-44 pt-2"
               >
                 <div class="rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg shadow-slate-950/10">
+                  <a
+                    id="oidc-authorization-link"
+                    href={Application.fetch_env!(:eim, :oidc_authorization_url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+                  >
+                    OIDC Grants
+                  </a>
                   <.link
                     id="sign-out-link"
                     href="/sign-out"
@@ -208,6 +216,7 @@ defmodule EimWeb.Layouts do
               Sign in with Authx
             </a>
           <% end %>
+
           <.theme_toggle />
         </div>
       </nav>

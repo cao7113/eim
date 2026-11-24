@@ -4,12 +4,18 @@ defmodule Eim.Vocab.Entry do
     domain: Eim.Vocab,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshJsonApi.Resource]
+    extensions: [AshJsonApi.Resource, AshAdmin.Resource]
+
+  admin do
+    table_columns [:term_key, :lemma, :updated_at]
+  end
 
   postgres do
     table "vocab_entries"
     repo Eim.Repo
   end
+
+  alias Eim.Vocab.Changes.SetTermKey
 
   json_api do
     type "vocab-entry"
@@ -21,6 +27,7 @@ defmodule Eim.Vocab.Entry do
       post :create
       patch :update_note
       delete :destroy
+      route :post, "/import", :import
     end
   end
 
@@ -35,23 +42,7 @@ defmodule Eim.Vocab.Entry do
       return_skipped_upsert? true
 
       change relate_actor(:user)
-
-      change fn changeset, _context ->
-        lookup_text = Ash.Changeset.get_attribute(changeset, :lookup_text)
-        lemma = Ash.Changeset.get_attribute(changeset, :lemma)
-        term = if is_binary(lemma) and String.trim(lemma) != "", do: lemma, else: lookup_text
-
-        normalized_term = term_key_for(term)
-
-        if normalized_term == "" do
-          Ash.Changeset.add_error(changeset,
-            field: :lookup_text,
-            message: "must not be blank"
-          )
-        else
-          Ash.Changeset.change_attribute(changeset, :term_key, normalized_term)
-        end
-      end
+      change SetTermKey
     end
 
     update :update_note do
@@ -59,9 +50,52 @@ defmodule Eim.Vocab.Entry do
     end
 
     destroy :destroy
+
+    action :import, :map do
+      description "Look up and import multiple dictionary entries into the current user's vocabulary."
+
+      # [
+      #   {"word": "ephemeral", "note": "en"},
+      #   {"word": "serendipity", "note": "en"}
+      # ]
+      # todo how to input in admin page
+      argument :entries, {:array, :map} do
+        allow_nil? false
+        constraints max_length: 500
+
+        # constraints items: [
+        #               fields: [
+        #                 word: [type: :string, allow_nil?: false],
+        #                 note: [type: :string]
+        #               ]
+        #             ]
+        # constraints items: [
+        #               fields: [
+        #                 word: [type: :string, allow_nil?: false],
+        #                 note: [type: :string]
+        #               ]
+        #             ],
+        #             max_length: 500
+      end
+
+      constraints fields: [
+                    total: [type: :integer, allow_nil?: false],
+                    matched: [type: :integer, allow_nil?: false],
+                    created: [type: :integer, allow_nil?: false],
+                    updated: [type: :integer, allow_nil?: false],
+                    skipped: [type: :integer, allow_nil?: false],
+                    results: [type: {:array, :map}]
+                  ]
+
+      run Eim.Vocab.Import
+    end
   end
 
   policies do
+    policy action(:import) do
+      authorize_if actor_present()
+    end
+
     policy action_type(:create) do
       authorize_if actor_present()
     end
@@ -124,10 +158,14 @@ defmodule Eim.Vocab.Entry do
     identity :unique_owner_term, [:user_id, :term_key]
   end
 
-  def term_key_for(term) do
+  def term_key_for(nil), do: ""
+
+  def term_key_for(term) when is_binary(term) do
     term
     |> String.normalize(:nfkc)
     |> String.trim()
     |> String.downcase()
   end
+
+  def term_key_for(_term), do: ""
 end

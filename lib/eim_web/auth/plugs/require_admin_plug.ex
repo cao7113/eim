@@ -1,4 +1,4 @@
-defmodule EimWeb.Plugs.RequireAdmin do
+defmodule EimWeb.Auth.RequireAdminPlug do
   import Plug.Conn
   import Phoenix.Controller, only: [redirect: 2]
 
@@ -7,7 +7,7 @@ defmodule EimWeb.Plugs.RequireAdmin do
   def call(conn, _opts) do
     user = conn.assigns[:current_user]
 
-    if user && Eim.Accounts.Admins.admin?(user.id) do
+    if user && Eim.Admins.admin?(user) do
       conn
     else
       conn |> redirect(to: "/") |> halt()

@@ -23,18 +23,25 @@ defmodule EimWeb.AuthController do
   def sign_out(conn, _params) do
     return_to = get_session(conn, :return_to) || ~p"/"
 
-    if user = conn.assigns[:current_user] do
-      :ok =
-        Phoenix.PubSub.broadcast(
-          Eim.PubSub,
-          Eim.Accounts.Admins.access_topic(user.id),
-          :admin_access_revoked
-        )
-    end
-
     conn
     |> clear_session(:eim)
     |> put_flash(:info, "You are now signed out")
     |> redirect(to: return_to)
+  end
+
+  def sign_in_with_return(conn, %{"return_to" => return_to}) do
+    conn
+    |> put_session(:return_to, safe_return_to(return_to))
+    |> redirect(to: ~p"/sign-in")
+  end
+
+  def sign_in_with_return(conn, _params), do: redirect(conn, to: ~p"/sign-in")
+
+  defp safe_return_to(return_to) do
+    if String.starts_with?(return_to, "/") and not String.starts_with?(return_to, "//") do
+      return_to
+    else
+      ~p"/"
+    end
   end
 end

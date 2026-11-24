@@ -16,6 +16,7 @@ export const productionEnvironment = {
   id: 'production',
   label: '正式环境',
   origin: 'https://eim.fly.dev',
+  // authxIssuer: 'https://authx.fly.dev',
   ...unconfiguredAuthx,
 } as const;
 
